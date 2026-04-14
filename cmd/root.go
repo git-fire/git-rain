@@ -1,0 +1,447 @@
+// Package cmd implements the git-rain Cobra CLI.
+package cmd
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/git-rain/git-rain/internal/config"
+	"github.com/git-rain/git-rain/internal/git"
+	"github.com/git-rain/git-rain/internal/registry"
+	"github.com/git-rain/git-rain/internal/safety"
+)
+
+// Version is set at build time via -ldflags "-X github.com/git-rain/git-rain/cmd.Version=vX.Y.Z"
+var Version = "dev"
+
+var (
+	rainPath            string
+	rainNoScan          bool
+	rainRisky           bool
+	rainDryRun          bool
+	rainFetchOnly       bool
+	rainInit            bool
+	rainConfigFile      string
+	forceUnlockRegistry bool
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "git-rain",
+	Short: "Sync all local repos from their remotes",
+	Long: `Git Rain — reverse sync from remotes
+
+Safety-first defaults:
+  - never rewrites local-only commits
+  - fast-forwards current branch only when merge can be done safely
+  - updates non-checked-out branch refs directly
+
+Risky mode (config: global.risky_mode, flag: --risky) allows destructive
+realignment of local-only commits after creating git-rain-backup-* refs.`,
+	RunE: runRain,
+}
+
+// Execute runs the CLI.
+func Execute() error {
+	return rootCmd.Execute()
+}
+
+func init() {
+	v := Version
+	if v == "" {
+		v = "dev"
+	}
+	rootCmd.Version = v
+	rootCmd.SilenceUsage = true
+	rootCmd.Flags().StringVar(&rainPath, "path", "", "Path to scan for repositories (default: config global.scan_path)")
+	rootCmd.Flags().BoolVar(&rainNoScan, "no-scan", false, "Skip filesystem scan; hydrate only known registry repos")
+	rootCmd.Flags().BoolVar(&rainRisky, "risky", false, "Allow destructive local branch realignment after creating backup refs")
+	rootCmd.Flags().BoolVar(&rainDryRun, "dry-run", false, "Show what would be synced without making changes")
+	rootCmd.Flags().BoolVar(&rainFetchOnly, "fetch-only", false, "Run git fetch --all --prune per repo but skip local ref updates")
+	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
+	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
+	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
+}
+
+func runRain(_ *cobra.Command, _ []string) error {
+	if rainInit {
+		return handleInit()
+	}
+
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git not found in PATH: please install git before using git-rain")
+	}
+
+	cfg, err := config.LoadWithOptions(config.LoadOptions{ConfigFile: rainConfigFile})
+	if err != nil {
+		return fmt.Errorf("failed to load config: %s", safety.SanitizeText(err.Error()))
+	}
+	if rainPath != "" {
+		cfg.Global.ScanPath = rainPath
+	}
+	if rainNoScan {
+		cfg.Global.DisableScan = true
+	}
+	riskyMode := cfg.Global.RiskyMode || rainRisky
+
+	reg := &registry.Registry{}
+	regPath := ""
+	if p, pathErr := registry.DefaultRegistryPath(); pathErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: registry disabled: %v\n", pathErr)
+	} else if unlockErr := maybeOfferRegistryUnlock(p); unlockErr != nil {
+		return unlockErr
+	} else if loaded, loadErr := registry.Load(p); loadErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: ignoring unreadable registry %s: %v\n", p, loadErr)
+	} else {
+		regPath = p
+		reg = loaded
+	}
+
+	for i, entry := range reg.Repos {
+		if entry.Status == registry.StatusIgnored {
+			continue
+		}
+		if _, statErr := os.Stat(entry.Path); statErr != nil {
+			if os.IsNotExist(statErr) && reg.Repos[i].Status != registry.StatusMissing {
+				reg.Repos[i].Status = registry.StatusMissing
+			}
+			continue
+		}
+		if entry.Status == registry.StatusMissing || entry.Status == "" {
+			reg.Repos[i].Status = registry.StatusActive
+		}
+	}
+
+	opts := git.DefaultScanOptions()
+	opts.RootPath = cfg.Global.ScanPath
+	opts.Exclude = cfg.Global.ScanExclude
+	opts.MaxDepth = cfg.Global.ScanDepth
+	opts.Workers = cfg.Global.ScanWorkers
+	opts.KnownPaths = buildKnownPaths(reg, cfg.Global.RescanSubmodules)
+	opts.DisableScan = cfg.Global.DisableScan
+
+	if opts.DisableScan {
+		fmt.Println("⚠️  Rain scanning disabled: hydrating known registry repositories only")
+	}
+
+	if rainDryRun {
+		return runDryRun(opts, riskyMode)
+	}
+
+	repos, err := git.ScanRepositories(opts)
+	if err != nil {
+		return fmt.Errorf("repository scan failed: %w", err)
+	}
+
+	now := time.Now()
+	defaultMode := git.ParseMode(cfg.Global.DefaultMode)
+	for i, repo := range repos {
+		repos[i], _ = upsertRepoIntoRegistry(reg, repo, now, defaultMode)
+	}
+	saveRegistry(reg, regPath)
+
+	active := make([]git.Repository, 0, len(repos))
+	for _, repo := range repos {
+		absPath, absErr := filepath.Abs(repo.Path)
+		if absErr != nil {
+			active = append(active, repo)
+			continue
+		}
+		entry := reg.FindByPath(absPath)
+		if entry != nil && entry.Status == registry.StatusIgnored {
+			continue
+		}
+		active = append(active, repo)
+	}
+	if len(active) == 0 {
+		fmt.Println("No git repositories found.")
+		return nil
+	}
+
+	fmt.Println("🌧️  Git Rain")
+	if riskyMode {
+		fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+	} else {
+		fmt.Println("✓ Safe mode: local-only commits are preserved")
+	}
+	fmt.Println()
+
+	totalUpdated := 0
+	totalSkipped := 0
+	totalFailed := 0
+	repoFailures := 0
+
+	for _, repo := range active {
+		fmt.Printf("Repo: %s\n", repo.Name)
+
+		if rainFetchOnly {
+			if fetchErr := fetchOnly(repo.Path); fetchErr != nil {
+				repoFailures++
+				fmt.Printf("  ❌ fetch failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				continue
+			}
+			fmt.Println("  ✓ fetched")
+			fmt.Println()
+			totalUpdated++
+			continue
+		}
+
+		res, rainErr := git.RainRepository(repo.Path, git.RainOptions{RiskyMode: riskyMode})
+		if rainErr != nil {
+			repoFailures++
+			fmt.Printf("  ❌ failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			continue
+		}
+		if len(res.Branches) == 0 {
+			fmt.Println("  ⊘ no local branches found")
+			fmt.Println()
+			continue
+		}
+
+		for _, br := range res.Branches {
+			symbol := "⊘"
+			switch br.Outcome {
+			case git.RainOutcomeUpdated:
+				symbol = "✓"
+			case git.RainOutcomeUpdatedRisky:
+				symbol = "⚠️"
+			case git.RainOutcomeFailed:
+				symbol = "❌"
+			}
+			line := fmt.Sprintf("  %s %s", symbol, br.Branch)
+			if br.Upstream != "" {
+				line += " <- " + br.Upstream
+			}
+			line += ": " + br.Outcome
+			if br.Message != "" {
+				line += " (" + safety.SanitizeText(strings.TrimSpace(br.Message)) + ")"
+			}
+			if br.BackupBranch != "" {
+				line += " backup=" + br.BackupBranch
+			}
+			fmt.Println(line)
+		}
+		fmt.Println()
+
+		totalUpdated += res.Updated
+		totalSkipped += res.Skipped
+		totalFailed += res.Failed
+		if res.Failed > 0 {
+			repoFailures++
+		}
+	}
+
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println("🌧️  Rain complete")
+	fmt.Printf("Updated branches: %d\n", totalUpdated)
+	fmt.Printf("Skipped branches: %d\n", totalSkipped)
+	fmt.Printf("Failed branches: %d\n", totalFailed)
+
+	if repoFailures > 0 || totalFailed > 0 {
+		return fmt.Errorf("rain completed with failures")
+	}
+	return nil
+}
+
+func runDryRun(opts git.ScanOptions, riskyMode bool) error {
+	repos, err := git.ScanRepositories(opts)
+	if err != nil {
+		return fmt.Errorf("repository scan failed: %w", err)
+	}
+
+	fmt.Println("🌧️  Git Rain — dry run")
+	if riskyMode {
+		fmt.Println("⚠️  Risky mode would be enabled")
+	} else {
+		fmt.Println("✓ Safe mode: local-only commits would be preserved")
+	}
+	fmt.Println()
+
+	if len(repos) == 0 {
+		fmt.Println("No git repositories found.")
+		return nil
+	}
+
+	fmt.Printf("Would hydrate %d repositor", len(repos))
+	if len(repos) == 1 {
+		fmt.Println("y:")
+	} else {
+		fmt.Println("ies:")
+	}
+	for _, repo := range repos {
+		fmt.Printf("  • %s (%s)\n", repo.Name, repo.Path)
+	}
+	return nil
+}
+
+func fetchOnly(repoPath string) error {
+	cmd := exec.Command("git", "fetch", "--all", "--prune")
+	cmd.Dir = repoPath
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git fetch --all --prune: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func handleInit() error {
+	cfgPath := config.DefaultConfigPath()
+	if _, err := os.Stat(cfgPath); err == nil {
+		fmt.Fprintf(os.Stderr, "Config file already exists: %s\n", cfgPath)
+		fmt.Fprintf(os.Stderr, "Use --force to overwrite.\n")
+		return fmt.Errorf("config file already exists: %s", cfgPath)
+	}
+	if err := config.WriteExampleConfig(cfgPath); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	fmt.Printf("Created example config: %s\n", cfgPath)
+	return nil
+}
+
+func maybeOfferRegistryUnlock(regPath string) error {
+	if regPath == "" {
+		return nil
+	}
+
+	if forceUnlockRegistry {
+		lockPath := registry.LockPath(regPath)
+		if _, err := os.Stat(lockPath); err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("registry lock: %w", err)
+		}
+		info, _ := registry.ReadLockFile(regPath)
+		fmt.Fprintf(os.Stderr, "warning: removing registry lock file (--force-unlock-registry): %s\n", lockPath)
+		if info != nil {
+			if info.OwnerAppearsAlive && info.PID > 0 {
+				fmt.Fprintf(os.Stderr, "warning: lock listed PID %d, which still appears to be running\n", info.PID)
+			} else if info.PID > 0 {
+				fmt.Fprintf(os.Stderr, "warning: lock listed PID %d; only remove this if no other git-rain is running\n", info.PID)
+			}
+		}
+		if err := registry.RemoveLockFile(regPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing registry lock: %w", err)
+		}
+		return nil
+	}
+
+	info, err := registry.ReadLockFile(regPath)
+	if err != nil {
+		return fmt.Errorf("registry lock: %w", err)
+	}
+	if info == nil {
+		return nil
+	}
+
+	if !info.OwnerAppearsAlive {
+		fmt.Fprintf(os.Stderr, "warning: removing stale registry lock (owner process is gone): %s\n", info.LockPath)
+		if err := registry.RemoveLockFile(regPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing stale registry lock: %w", err)
+		}
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "\nRegistry lock file is present:\n  %s\n", info.LockPath)
+	fmt.Fprintf(os.Stderr, "This usually means another git-rain is running, or a previous run exited uncleanly.\n")
+	if info.PID > 0 {
+		fmt.Fprintf(os.Stderr, "Lock owner PID: %d (still appears to be running).\n", info.PID)
+	}
+	fmt.Fprintf(os.Stderr, "\nRemoving the lock while another instance is active can corrupt your repo registry.\n")
+	fmt.Fprintf(os.Stderr, "If you are sure no other git-rain is running, you can remove the lock and continue.\n\n")
+
+	if stat, err := os.Stdin.Stat(); err != nil || (stat.Mode()&os.ModeCharDevice) == 0 {
+		return fmt.Errorf("registry is locked; pass --force-unlock-registry to remove %s non-interactively", info.LockPath)
+	}
+
+	fmt.Print("Remove lock and continue? [y/N]: ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("reading confirmation: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		if err := registry.RemoveLockFile(regPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing registry lock: %w", err)
+		}
+		fmt.Fprintln(os.Stderr, "Lock removed.")
+		return nil
+	default:
+		return fmt.Errorf("aborted: registry lock still present at %s", safety.SanitizeText(info.LockPath))
+	}
+}
+
+func buildKnownPaths(reg *registry.Registry, globalRescan bool) map[string]bool {
+	m := make(map[string]bool, len(reg.Repos))
+	for _, e := range reg.Repos {
+		if e.Status == registry.StatusIgnored {
+			continue
+		}
+		if e.Status != registry.StatusActive && e.Status != registry.StatusMissing && e.Status != "" {
+			continue
+		}
+		abs, err := filepath.Abs(e.Path)
+		if err != nil {
+			continue
+		}
+		rescan := globalRescan
+		if e.RescanSubmodules != nil {
+			rescan = *e.RescanSubmodules
+		}
+		m[abs] = rescan
+	}
+	return m
+}
+
+func upsertRepoIntoRegistry(reg *registry.Registry, repo git.Repository, now time.Time, defaultMode git.RepoMode) (git.Repository, bool) {
+	absPath, err := filepath.Abs(repo.Path)
+	if err != nil {
+		repo.IsNewRegistryEntry = false
+		return repo, true
+	}
+	var modeStr string
+	var ignored bool
+	found := reg.UpdateByPath(absPath, func(e *registry.RegistryEntry) {
+		modeStr = e.Mode
+		e.LastSeen = now
+		if e.Status == registry.StatusIgnored {
+			ignored = true
+			return
+		}
+		e.Status = registry.StatusActive
+	})
+	if found {
+		repo.IsNewRegistryEntry = false
+		if modeStr != "" {
+			repo.Mode = git.ParseMode(modeStr)
+		} else {
+			repo.Mode = defaultMode
+		}
+		return repo, !ignored
+	}
+	repo.Mode = defaultMode
+	repo.IsNewRegistryEntry = true
+	reg.Upsert(registry.RegistryEntry{
+		Path:     absPath,
+		Name:     repo.Name,
+		Status:   registry.StatusActive,
+		Mode:     repo.Mode.String(),
+		AddedAt:  now,
+		LastSeen: now,
+	})
+	return repo, true
+}
+
+func saveRegistry(reg *registry.Registry, regPath string) {
+	if regPath == "" {
+		return
+	}
+	if err := registry.Save(reg, regPath); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to save registry: %v\n", err)
+	}
+}
