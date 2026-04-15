@@ -12,6 +12,16 @@
   <circle cx="49" cy="20" r="8.5"  fill="url(#cloud-icon-l)"/>
   <rect   x="22.5" y="19.5" width="35" height="8.5" fill="url(#cloud-icon-l)"/>
 
+  <!-- ── RAIN STREAKS (left of lightning) ── -->
+  <line x1="23" y1="30" x2="23" y2="37" stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round" opacity="0.60"/>
+  <line x1="27" y1="34" x2="27" y2="41" stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
+  <line x1="31" y1="31" x2="31" y2="38" stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round" opacity="0.60"/>
+
+  <!-- ── RAIN STREAKS (right of lightning) ── -->
+  <line x1="49" y1="31" x2="49" y2="38" stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round" opacity="0.60"/>
+  <line x1="53" y1="34" x2="53" y2="41" stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
+  <line x1="57" y1="30" x2="57" y2="37" stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round" opacity="0.60"/>
+
   <!-- ── LIGHTNING BOLT ── -->
   <path d="M 40 28 L 37 36 L 41 36 L 38 43"
         stroke="#F7E040" stroke-width="2.5"
