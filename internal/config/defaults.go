@@ -1,6 +1,10 @@
 package config
 
-const DefaultFetchWorkers = 4
+const (
+	DefaultFetchWorkers              = 4
+	DefaultUIRainTickMS              = 150
+	DefaultUIStartupQuoteIntervalSec = 10
+)
 
 // DefaultConfig returns safe default configuration
 func DefaultConfig() Config {
@@ -24,6 +28,15 @@ func DefaultConfig() Config {
 			RescanSubmodules: false,
 			DisableScan:      false,
 			RiskyMode:        false,
+		},
+		UI: UIConfig{
+			ShowRainAnimation:       true,
+			RainAnimationMode:       UIRainAnimationBasic,
+			ShowStartupQuote:        true,
+			StartupQuoteBehavior:    UIQuoteBehaviorRefresh,
+			StartupQuoteIntervalSec: DefaultUIStartupQuoteIntervalSec,
+			RainTickMS:              DefaultUIRainTickMS,
+			ColorProfile:            UIColorProfileStorm,
 		},
 	}
 }
@@ -71,5 +84,27 @@ disable_scan = false
 # Allow destructive local branch realignment.
 # false = preserve local-only commits; true = permit hard resets to remote.
 risky_mode = false
+
+[ui]
+# Show rain animation in the interactive repo selector (toggle live with 'r')
+show_rain_animation = true
+
+# Animation mode: "basic" (rain drops only) or "advanced" (clouds + rain + flowers)
+rain_animation_mode = "basic"
+
+# Show flavor quotes in the TUI banner
+show_startup_quote = true
+
+# What to do when the quote timer expires: "refresh" or "hide"
+startup_quote_behavior = "refresh"
+
+# Seconds between quote refreshes (or before hiding)
+startup_quote_interval_sec = 10
+
+# Rain animation speed in milliseconds per frame (lower = faster)
+rain_tick_ms = 150
+
+# Color profile: "storm", "drizzle", "monsoon", "rainbow", "synthwave"
+color_profile = "storm"
 `
 }

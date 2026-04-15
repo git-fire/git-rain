@@ -3,6 +3,8 @@ package cmd
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +18,7 @@ import (
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
 	"github.com/git-rain/git-rain/internal/safety"
+	"github.com/git-rain/git-rain/internal/ui"
 )
 
 // Version is set at build time via -ldflags "-X github.com/git-rain/git-rain/cmd.Version=vX.Y.Z"
@@ -29,8 +32,12 @@ var (
 	rainFetchOnly       bool
 	rainInit            bool
 	rainConfigFile      string
+	rainSelect          bool
 	forceUnlockRegistry bool
 )
+
+// errRunAborted is returned when the user cancels the TUI.
+var errRunAborted = errors.New("aborted")
 
 var rootCmd = &cobra.Command{
 	Use:   "git-rain",
@@ -66,6 +73,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainFetchOnly, "fetch-only", false, "Run git fetch --all --prune per repo but skip local ref updates")
 	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
 	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
+	rootCmd.Flags().BoolVar(&rainSelect, "select", false, "Interactive TUI repo selector before syncing")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 }
 
@@ -132,6 +140,10 @@ func runRain(_ *cobra.Command, _ []string) error {
 
 	if rainDryRun {
 		return runDryRun(opts, riskyMode)
+	}
+
+	if rainSelect {
+		return runSelectStream(cfg, reg, regPath, opts, riskyMode)
 	}
 
 	repos, err := git.ScanRepositories(opts)
@@ -276,6 +288,183 @@ func runDryRun(opts git.ScanOptions, riskyMode bool) error {
 	}
 	for _, repo := range repos {
 		fmt.Printf("  • %s (%s)\n", repo.Name, repo.Path)
+	}
+	return nil
+}
+
+// runSelectStream launches the interactive TUI repo selector (streaming mode).
+// The filesystem scan runs concurrently; repos stream into the selector as they
+// are discovered. After selection, rain runs on the chosen repos.
+func runSelectStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, riskyMode bool) error {
+	ctx, cancelScan := context.WithCancel(context.Background())
+	defer cancelScan()
+	opts.Ctx = ctx
+
+	folderProgress := make(chan string, 32)
+	opts.FolderProgress = folderProgress
+
+	scanChan := make(chan git.Repository, opts.Workers)
+	tuiRepoChan := make(chan git.Repository, opts.Workers)
+
+	var scanErr error
+	scanDone := make(chan struct{})
+	go func() {
+		defer close(scanDone)
+		scanErr = git.ScanRepositoriesStream(opts, scanChan)
+	}()
+
+	now := time.Now()
+	defaultMode := git.ParseMode(cfg.Global.DefaultMode)
+	go func() {
+		defer close(tuiRepoChan)
+		for repo := range scanChan {
+			repo, include := upsertRepoIntoRegistry(reg, repo, now, defaultMode)
+			if include {
+				repo.Selected = true
+				tuiRepoChan <- repo
+			}
+		}
+		saveRegistry(reg, regPath)
+	}()
+
+	userCfgDir, _ := config.UserGitRainDir()
+	cfgPath := filepath.Join(userCfgDir, "config.toml")
+
+	selected, err := ui.RunRepoSelectorStream(
+		tuiRepoChan,
+		folderProgress,
+		cfg.Global.DisableScan,
+		rainNoScan,
+		cfg,
+		cfgPath,
+		reg,
+		regPath,
+	)
+
+	// Drain channels before cancelling so goroutines can't block on sends.
+	go func() {
+		for range tuiRepoChan {
+		}
+	}()
+	go func() {
+		for range folderProgress {
+		}
+	}()
+	cancelScan()
+	<-scanDone
+
+	if err != nil {
+		if errors.Is(err, ui.ErrCancelled) {
+			fmt.Println("Aborted.")
+			os.Exit(0)
+		}
+		return fmt.Errorf("repo selection failed: %w", err)
+	}
+	if len(selected) == 0 {
+		fmt.Println("No repositories selected.")
+		return nil
+	}
+
+	if scanErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: scan error: %s\n", safety.SanitizeText(scanErr.Error()))
+	}
+
+	fmt.Println("Selected repositories:")
+	for _, repo := range selected {
+		dirty := ""
+		if repo.IsDirty {
+			dirty = " (dirty)"
+		}
+		fmt.Printf("  • %s%s\n", repo.Name, dirty)
+	}
+	fmt.Println()
+
+	return runRainOnRepos(selected, riskyMode)
+}
+
+// runRainOnRepos runs the rain operation on a pre-selected list of repos.
+func runRainOnRepos(repos []git.Repository, riskyMode bool) error {
+	fmt.Println("🌧️  Git Rain")
+	if riskyMode {
+		fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+	} else {
+		fmt.Println("✓ Safe mode: local-only commits are preserved")
+	}
+	fmt.Println()
+
+	totalUpdated := 0
+	totalSkipped := 0
+	totalFailed := 0
+	repoFailures := 0
+
+	for _, repo := range repos {
+		fmt.Printf("Repo: %s\n", repo.Name)
+
+		if rainFetchOnly {
+			if fetchErr := fetchOnly(repo.Path); fetchErr != nil {
+				repoFailures++
+				fmt.Printf("  ❌ fetch failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				continue
+			}
+			fmt.Println("  ✓ fetched")
+			fmt.Println()
+			totalUpdated++
+			continue
+		}
+
+		res, rainErr := git.RainRepository(repo.Path, git.RainOptions{RiskyMode: riskyMode})
+		if rainErr != nil {
+			repoFailures++
+			fmt.Printf("  ❌ failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			continue
+		}
+		if len(res.Branches) == 0 {
+			fmt.Println("  ⊘ no local branches found")
+			fmt.Println()
+			continue
+		}
+
+		for _, br := range res.Branches {
+			symbol := "⊘"
+			switch br.Outcome {
+			case git.RainOutcomeUpdated:
+				symbol = "✓"
+			case git.RainOutcomeUpdatedRisky:
+				symbol = "⚠️"
+			case git.RainOutcomeFailed:
+				symbol = "❌"
+			}
+			line := fmt.Sprintf("  %s %s", symbol, br.Branch)
+			if br.Upstream != "" {
+				line += " <- " + br.Upstream
+			}
+			line += ": " + br.Outcome
+			if br.Message != "" {
+				line += " (" + safety.SanitizeText(strings.TrimSpace(br.Message)) + ")"
+			}
+			if br.BackupBranch != "" {
+				line += " backup=" + br.BackupBranch
+			}
+			fmt.Println(line)
+		}
+		fmt.Println()
+
+		totalUpdated += res.Updated
+		totalSkipped += res.Skipped
+		totalFailed += res.Failed
+		if res.Failed > 0 {
+			repoFailures++
+		}
+	}
+
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println("🌧️  Rain complete")
+	fmt.Printf("Updated branches: %d\n", totalUpdated)
+	fmt.Printf("Skipped branches: %d\n", totalSkipped)
+	fmt.Printf("Failed branches: %d\n", totalFailed)
+
+	if repoFailures > 0 || totalFailed > 0 {
+		return fmt.Errorf("rain completed with failures")
 	}
 	return nil
 }

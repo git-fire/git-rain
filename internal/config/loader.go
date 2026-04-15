@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
 
@@ -81,6 +82,36 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("global.rescan_submodules", defaults.Global.RescanSubmodules)
 	v.SetDefault("global.disable_scan", defaults.Global.DisableScan)
 	v.SetDefault("global.risky_mode", defaults.Global.RiskyMode)
+
+	v.SetDefault("ui.show_rain_animation", defaults.UI.ShowRainAnimation)
+	v.SetDefault("ui.rain_animation_mode", defaults.UI.RainAnimationMode)
+	v.SetDefault("ui.show_startup_quote", defaults.UI.ShowStartupQuote)
+	v.SetDefault("ui.startup_quote_behavior", defaults.UI.StartupQuoteBehavior)
+	v.SetDefault("ui.startup_quote_interval_sec", defaults.UI.StartupQuoteIntervalSec)
+	v.SetDefault("ui.rain_tick_ms", defaults.UI.RainTickMS)
+	v.SetDefault("ui.color_profile", defaults.UI.ColorProfile)
+}
+
+// SaveConfig writes cfg to path as TOML. Intermediate directories are created
+// if needed. Existing file content is replaced atomically.
+func SaveConfig(cfg *Config, path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	data, err := toml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshalling config: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("writing temp config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("replacing config file: %w", err)
+	}
+	return nil
 }
 
 // LoadOrDefault loads config or returns defaults if no config found.
