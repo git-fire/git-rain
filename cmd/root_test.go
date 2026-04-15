@@ -87,8 +87,8 @@ func TestRunRain_SafeModeSkipsLocalAheadBranch(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("runRain() safe mode error = %v", runErr)
 	}
-	if !strings.Contains(output, "skipped-local-ahead") {
-		t.Fatalf("expected safe mode output to mention skipped-local-ahead, got:\n%s", output)
+	if !strings.Contains(output, "local ahead") {
+		t.Fatalf("expected safe mode output to mention 'local ahead', got:\n%s", output)
 	}
 	if got := testutil.GetCurrentSHA(t, repo.Path()); got != localAheadSHA {
 		t.Fatalf("safe mode should preserve local-ahead SHA (want=%s got=%s)", localAheadSHA, got)
@@ -125,8 +125,8 @@ func TestRunRain_RiskyFlagResetsLocalAheadBranch(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("runRain() risky mode error = %v", runErr)
 	}
-	if !strings.Contains(output, "updated-risky") {
-		t.Fatalf("expected risky output to mention updated-risky, got:\n%s", output)
+	if !strings.Contains(output, "realigned") {
+		t.Fatalf("expected risky output to mention 'realigned', got:\n%s", output)
 	}
 	if got := testutil.GetCurrentSHA(t, repo.Path()); got != remoteSHA {
 		t.Fatalf("risky mode should reset branch to remote SHA (want=%s got=%s)", remoteSHA, got)

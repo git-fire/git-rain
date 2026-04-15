@@ -41,6 +41,43 @@ func matchesPatterns(name string, patterns []string) bool {
 	return false
 }
 
+// fetchFailureReason classifies a failed git-fetch stderr output into a
+// human-friendly frozen reason. Returns a calm, non-alarming message.
+func fetchFailureReason(output []byte) string {
+	s := strings.ToLower(string(output))
+	authPhrases := []string{
+		"authentication failed",
+		"could not read username",
+		"could not read password",
+		"permission denied",
+		"repository not found",
+		"terminal prompts disabled",
+		"invalid username or password",
+		"invalid credentials",
+		" 403 ", " 401 ",
+	}
+	for _, p := range authPhrases {
+		if strings.Contains(s, p) {
+			return "could not authenticate with remote — check your credentials and try again"
+		}
+	}
+	netPhrases := []string{
+		"could not resolve host",
+		"connection refused",
+		"network is unreachable",
+		"timed out",
+		"connection timed out",
+		"no route to host",
+		"temporary failure in name resolution",
+	}
+	for _, p := range netPhrases {
+		if strings.Contains(s, p) {
+			return "could not reach remote — check your network and try again"
+		}
+	}
+	return "fetch did not complete — try again when the remote is reachable"
+}
+
 // isMainlineBranch reports whether a branch name is a mainline or gitflow branch.
 func isMainlineBranch(name string) bool {
 	if mainlineBranchNames[name] {
@@ -75,9 +112,13 @@ type RainOptions struct {
 }
 
 const (
-	RainOutcomeUpdated                  = "updated"
-	RainOutcomeUpdatedRisky             = "updated-risky"
-	RainOutcomeUpToDate                 = "up-to-date"
+	// RainOutcomeUpdated — branch fast-forwarded from remote. ↓ Rain delivered.
+	RainOutcomeUpdated = "updated"
+	// RainOutcomeUpdatedRisky — branch realigned via hard reset after backup. ⚡ Lightning.
+	RainOutcomeUpdatedRisky = "updated-risky"
+	// RainOutcomeUpToDate — local already matches upstream. · Nothing to do.
+	RainOutcomeUpToDate = "up-to-date"
+	// Skipped variants — fog. Local state prevents update; no changes made.
 	RainOutcomeSkippedNoUpstream        = "skipped-no-upstream"
 	RainOutcomeSkippedAmbiguousUpstream = "skipped-ambiguous-upstream"
 	RainOutcomeSkippedUpstreamMissing   = "skipped-upstream-missing"
@@ -86,7 +127,10 @@ const (
 	RainOutcomeSkippedDiverged          = "skipped-diverged"
 	RainOutcomeSkippedUnsafeMerge       = "skipped-unsafe-merge"
 	RainOutcomeSkippedUnsafeDirty       = "skipped-unsafe-dirty"
-	RainOutcomeFailed                   = "failed"
+	// RainOutcomeFrozen — fetch failed (auth, network). ❄ Frozen in place, try again later.
+	RainOutcomeFrozen = "frozen"
+	// RainOutcomeFailed — hard git error during local branch operation. ✗ Ice.
+	RainOutcomeFailed = "failed"
 )
 
 // RainBranchResult reports the outcome for one local branch.
@@ -105,7 +149,8 @@ type RainResult struct {
 	Branches []RainBranchResult
 	Updated  int
 	Skipped  int
-	Failed   int
+	Frozen   int // fetch failed (auth/network) — NBD, try again later
+	Failed   int // hard local git error
 }
 
 type localBranchTracking struct {
@@ -143,7 +188,24 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		cmd := exec.Command("git", fetchArgs...)
 		cmd.Dir = repoPath
 		if output, fetchErr := cmd.CombinedOutput(); fetchErr != nil {
-			return result, commandError("git fetch --all --prune", fetchErr, output)
+			// Freeze gracefully — could not reach remote (auth, network, etc.).
+			// This is not a hard failure; the repo is untouched. Try again later.
+			reason := fetchFailureReason(output)
+			candidates := branches
+			if len(candidates) == 0 {
+				candidates = []localBranchTracking{{Branch: "(all branches)"}}
+			}
+			for _, b := range candidates {
+				result.Branches = append(result.Branches, RainBranchResult{
+					Branch:   b.Branch,
+					Upstream: b.Upstream,
+					Current:  b.Current,
+					Outcome:  RainOutcomeFrozen,
+					Message:  reason,
+				})
+				result.Frozen++
+			}
+			return result, nil
 		}
 	}
 
@@ -211,6 +273,8 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 			switch outcome {
 			case RainOutcomeUpdated, RainOutcomeUpdatedRisky:
 				result.Updated++
+			case RainOutcomeFrozen:
+				result.Frozen++
 			case RainOutcomeFailed:
 				result.Failed++
 			default:

@@ -82,6 +82,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("global.rescan_submodules", defaults.Global.RescanSubmodules)
 	v.SetDefault("global.disable_scan", defaults.Global.DisableScan)
 	v.SetDefault("global.risky_mode", defaults.Global.RiskyMode)
+	v.SetDefault("global.branch_mode", defaults.Global.BranchMode)
+	v.SetDefault("global.sync_tags", defaults.Global.SyncTags)
+	v.SetDefault("global.mainline_patterns", defaults.Global.MainlinePatterns)
 
 	v.SetDefault("ui.show_rain_animation", defaults.UI.ShowRainAnimation)
 	v.SetDefault("ui.rain_animation_mode", defaults.UI.RainAnimationMode)

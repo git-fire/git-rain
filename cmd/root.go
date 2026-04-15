@@ -202,19 +202,20 @@ func runRain(_ *cobra.Command, _ []string) error {
 
 	totalUpdated := 0
 	totalSkipped := 0
+	totalFrozen := 0
 	totalFailed := 0
-	repoFailures := 0
 
 	for _, repo := range active {
-		fmt.Printf("Repo: %s\n", repo.Name)
+		fmt.Printf("  %s\n", repo.Name)
 
 		if rainFetchOnly {
 			if fetchErr := fetchOnly(repo.Path); fetchErr != nil {
-				repoFailures++
-				fmt.Printf("  ❌ fetch failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				fmt.Printf("    ❄  (all branches): %s\n\n",
+					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
+				totalFrozen++
 				continue
 			}
-			fmt.Println("  ✓ fetched")
+			fmt.Println("    ↓  fetched")
 			fmt.Println()
 			totalUpdated++
 			continue
@@ -222,36 +223,28 @@ func runRain(_ *cobra.Command, _ []string) error {
 
 		res, rainErr := git.RainRepository(repo.Path, rainOpts)
 		if rainErr != nil {
-			repoFailures++
-			fmt.Printf("  ❌ failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			totalFailed++
 			continue
 		}
 		if len(res.Branches) == 0 {
-			fmt.Println("  ⊘ no local branches found")
+			fmt.Println("    ·  no local branches")
 			fmt.Println()
 			continue
 		}
 
 		for _, br := range res.Branches {
-			symbol := "⊘"
-			switch br.Outcome {
-			case git.RainOutcomeUpdated:
-				symbol = "✓"
-			case git.RainOutcomeUpdatedRisky:
-				symbol = "⚠️"
-			case git.RainOutcomeFailed:
-				symbol = "❌"
-			}
-			line := fmt.Sprintf("  %s %s", symbol, br.Branch)
+			symbol := weatherSymbol(br.Outcome)
+			line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
 			if br.Upstream != "" {
-				line += " <- " + br.Upstream
+				line += " ← " + br.Upstream
 			}
-			line += ": " + br.Outcome
+			line += ": " + outcomeLabel(br.Outcome)
 			if br.Message != "" {
-				line += " (" + safety.SanitizeText(strings.TrimSpace(br.Message)) + ")"
+				line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
 			}
 			if br.BackupBranch != "" {
-				line += " backup=" + br.BackupBranch
+				line += " (backup: " + br.BackupBranch + ")"
 			}
 			fmt.Println(line)
 		}
@@ -259,22 +252,89 @@ func runRain(_ *cobra.Command, _ []string) error {
 
 		totalUpdated += res.Updated
 		totalSkipped += res.Skipped
+		totalFrozen += res.Frozen
 		totalFailed += res.Failed
-		if res.Failed > 0 {
-			repoFailures++
-		}
 	}
 
-	fmt.Println(strings.Repeat("=", 50))
-	fmt.Println("🌧️  Rain complete")
-	fmt.Printf("Updated branches: %d\n", totalUpdated)
-	fmt.Printf("Skipped branches: %d\n", totalSkipped)
-	fmt.Printf("Failed branches: %d\n", totalFailed)
-
-	if repoFailures > 0 || totalFailed > 0 {
-		return fmt.Errorf("rain completed with failures")
+	fmt.Println(strings.Repeat("─", 48))
+	if totalFailed > 0 {
+		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
+			totalUpdated, totalSkipped, totalFrozen, totalFailed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totalFailed)
 	}
+	if totalFrozen > 0 {
+		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
+			totalUpdated, totalSkipped, totalFrozen)
+		return nil
+	}
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totalUpdated, totalSkipped)
 	return nil
+}
+
+// weatherSymbol returns the terminal symbol for a branch outcome.
+func weatherSymbol(outcome string) string {
+	switch outcome {
+	case git.RainOutcomeUpdated:
+		return "↓"
+	case git.RainOutcomeUpdatedRisky:
+		return "⚡"
+	case git.RainOutcomeUpToDate:
+		return "·"
+	case git.RainOutcomeFrozen:
+		return "❄"
+	case git.RainOutcomeFailed:
+		return "✗"
+	default:
+		return "~" // fog — skipped for any local-state reason
+	}
+}
+
+// outcomeLabel returns a calm, readable label for a branch outcome.
+func outcomeLabel(outcome string) string {
+	switch outcome {
+	case git.RainOutcomeUpdated:
+		return "synced"
+	case git.RainOutcomeUpdatedRisky:
+		return "realigned"
+	case git.RainOutcomeUpToDate:
+		return "current"
+	case git.RainOutcomeFrozen:
+		return "frozen"
+	case git.RainOutcomeFailed:
+		return "failed"
+	case git.RainOutcomeSkippedNoUpstream:
+		return "no upstream"
+	case git.RainOutcomeSkippedAmbiguousUpstream:
+		return "ambiguous upstream"
+	case git.RainOutcomeSkippedUpstreamMissing:
+		return "upstream missing"
+	case git.RainOutcomeSkippedCheckedOut:
+		return "checked out elsewhere"
+	case git.RainOutcomeSkippedLocalAhead:
+		return "local ahead"
+	case git.RainOutcomeSkippedDiverged:
+		return "diverged"
+	case git.RainOutcomeSkippedUnsafeMerge:
+		return "unsafe merge"
+	case git.RainOutcomeSkippedUnsafeDirty:
+		return "dirty worktree"
+	default:
+		return outcome
+	}
+}
+
+// fetchFailureMessage extracts a calm message from a fetchOnly error.
+func fetchFailureMessage(errMsg string) string {
+	s := strings.ToLower(errMsg)
+	if strings.Contains(s, "authentication") || strings.Contains(s, "permission denied") ||
+		strings.Contains(s, "could not read") || strings.Contains(s, "401") || strings.Contains(s, "403") {
+		return "could not authenticate with remote — check your credentials and try again"
+	}
+	if strings.Contains(s, "could not resolve") || strings.Contains(s, "connection") ||
+		strings.Contains(s, "timed out") || strings.Contains(s, "network") {
+		return "could not reach remote — check your network and try again"
+	}
+	return "fetch did not complete — try again when the remote is reachable"
 }
 
 func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions) error {
@@ -411,19 +471,20 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions) error {
 
 	totalUpdated := 0
 	totalSkipped := 0
+	totalFrozen := 0
 	totalFailed := 0
-	repoFailures := 0
 
 	for _, repo := range repos {
-		fmt.Printf("Repo: %s\n", repo.Name)
+		fmt.Printf("  %s\n", repo.Name)
 
 		if rainFetchOnly {
 			if fetchErr := fetchOnly(repo.Path); fetchErr != nil {
-				repoFailures++
-				fmt.Printf("  ❌ fetch failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				fmt.Printf("    ❄  (all branches): %s\n\n",
+					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
+				totalFrozen++
 				continue
 			}
-			fmt.Println("  ✓ fetched")
+			fmt.Println("    ↓  fetched")
 			fmt.Println()
 			totalUpdated++
 			continue
@@ -431,36 +492,28 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions) error {
 
 		res, rainErr := git.RainRepository(repo.Path, opts)
 		if rainErr != nil {
-			repoFailures++
-			fmt.Printf("  ❌ failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			totalFailed++
 			continue
 		}
 		if len(res.Branches) == 0 {
-			fmt.Println("  ⊘ no local branches found")
+			fmt.Println("    ·  no local branches")
 			fmt.Println()
 			continue
 		}
 
 		for _, br := range res.Branches {
-			symbol := "⊘"
-			switch br.Outcome {
-			case git.RainOutcomeUpdated:
-				symbol = "✓"
-			case git.RainOutcomeUpdatedRisky:
-				symbol = "⚠️"
-			case git.RainOutcomeFailed:
-				symbol = "❌"
-			}
-			line := fmt.Sprintf("  %s %s", symbol, br.Branch)
+			symbol := weatherSymbol(br.Outcome)
+			line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
 			if br.Upstream != "" {
-				line += " <- " + br.Upstream
+				line += " ← " + br.Upstream
 			}
-			line += ": " + br.Outcome
+			line += ": " + outcomeLabel(br.Outcome)
 			if br.Message != "" {
-				line += " (" + safety.SanitizeText(strings.TrimSpace(br.Message)) + ")"
+				line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
 			}
 			if br.BackupBranch != "" {
-				line += " backup=" + br.BackupBranch
+				line += " (backup: " + br.BackupBranch + ")"
 			}
 			fmt.Println(line)
 		}
@@ -468,21 +521,22 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions) error {
 
 		totalUpdated += res.Updated
 		totalSkipped += res.Skipped
+		totalFrozen += res.Frozen
 		totalFailed += res.Failed
-		if res.Failed > 0 {
-			repoFailures++
-		}
 	}
 
-	fmt.Println(strings.Repeat("=", 50))
-	fmt.Println("🌧️  Rain complete")
-	fmt.Printf("Updated branches: %d\n", totalUpdated)
-	fmt.Printf("Skipped branches: %d\n", totalSkipped)
-	fmt.Printf("Failed branches: %d\n", totalFailed)
-
-	if repoFailures > 0 || totalFailed > 0 {
-		return fmt.Errorf("rain completed with failures")
+	fmt.Println(strings.Repeat("─", 48))
+	if totalFailed > 0 {
+		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
+			totalUpdated, totalSkipped, totalFrozen, totalFailed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totalFailed)
 	}
+	if totalFrozen > 0 {
+		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
+			totalUpdated, totalSkipped, totalFrozen)
+		return nil
+	}
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totalUpdated, totalSkipped)
 	return nil
 }
 
