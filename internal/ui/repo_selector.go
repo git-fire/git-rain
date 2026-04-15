@@ -136,7 +136,6 @@ type RepoSelectorModel struct {
 	confirmed           bool
 	frameIndex          int
 	rainBg              *RainBackground
-	rainAnimMode        string
 	spinner             spinner.Model
 	windowWidth         int
 	windowHeight        int
@@ -194,7 +193,6 @@ func NewRepoSelectorModel(repos []git.Repository, reg *registry.Registry, regPat
 		cursor:               0,
 		selected:             selected,
 		rainBg:               rainBg,
-		rainAnimMode:         animMode,
 		spinner:              s,
 		windowWidth:          80,
 		windowHeight:         40,
@@ -264,7 +262,6 @@ func NewRepoSelectorModelStream(
 		cursor:               0,
 		selected:             make(map[int]bool),
 		rainBg:               rainBg,
-		rainAnimMode:         animMode,
 		spinner:              s,
 		windowWidth:          80,
 		windowHeight:         40,
