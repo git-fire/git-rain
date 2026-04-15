@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: git-rain
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: git-rain
+    main: .
+    binary: git-rain
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/git-rain/git-rain/cmd.Version={{ .Tag }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+      - "386"
+    goarm:
+      - "6"
+    ignore:
+      - { goos: darwin,  goarch: arm   }
+      - { goos: darwin,  goarch: "386" }
+      - { goos: windows, goarch: arm   }
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    # Produces: git-rain_1.2.3_linux_amd64.tar.gz  (or .zip for Windows)
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: "New Features"
+      regexp: "^feat"
+      order: 0
+    - title: "Bug Fixes"
+      regexp: "^fix"
+      order: 1
+    - title: Other
+      order: 999
+
+# This config is for prerelease tags only.
+# Stable releases use `.goreleaser.stable.yaml` and publish package-manager metadata.
+
+release:
+  github:
+    owner: git-fire
+    name: git-rain
+  draft: false
+  prerelease: auto
+  make_latest: false
+  name_template: "{{ .Tag }}"
+  footer: |
+    ## Install
+
+    **Go**
+    ```sh
+    go install github.com/git-rain/git-rain@{{ .Tag }}
+    ```
+
+    **Binaries**
+    Download platform archives from this release's assets.
+    Package-manager channels are published for stable tags (`vX.Y.Z`).
+
+    Full instructions: [README -> Install](https://github.com/git-fire/git-rain/blob/{{ .Tag }}/README.md#install)
