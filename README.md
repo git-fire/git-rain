@@ -15,10 +15,10 @@
 
 ```
 git-fire  →  commit + push everything out
-git-rain  →  pull everything back down
+git-rain  →  fetch (default) or full reverse sync with --sync
 ```
 
-`git-rain` discovers all your local git repositories and syncs them from their remotes in one command — fast-forwarding branches, updating non-checked-out refs, and skipping anything that would rewrite local-only commits (unless you ask it to).
+`git-rain` discovers git repositories under your scan path (and known registry entries), then by default **fetches mainline remote-tracking refs** only (`main`, `master`, `trunk`, `develop`, `dev`, gitflow prefixes, plus your configured patterns). Use **`--sync`** for full hydration: fast-forwarding branches, updating non-checked-out refs, and skipping anything that would rewrite local-only commits unless you enable risky mode.
 
 Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on your PATH.
 
@@ -39,7 +39,7 @@ Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on 
 - [Core Commands](#core-commands)
 - [Flags](#flags)
 - [Configuration](#configuration)
-- [TUI Selector](#tui-selector)
+- [Interactive TUI](#interactive-tui)
 - [Safe Mode vs Risky Mode](#safe-mode-vs-risky-mode)
 - [Registry](#registry)
 - [Security Notes](#security-notes)
@@ -52,11 +52,14 @@ Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on 
 # preview first — shows what would be synced without touching anything
 git-rain --dry-run
 
-# sync all repos under the configured scan path
+# default: scan repos, then fetch mainline remote-tracking refs from remotes
 git-rain
 
-# interactive TUI: pick exactly which repos to sync
-git-rain --select
+# full local branch sync (same safety/risky rules as before)
+git-rain --sync
+
+# interactive TUI: pick repos, then default fetch or --sync behavior
+git-rain --rain
 ```
 
 ## Install
@@ -151,24 +154,24 @@ Requires Go 1.24.2+.
 
 ## How It Works
 
-1. **Scan** — walks your configured scan path discovering git repositories
-2. **Fetch** — runs `git fetch --all --prune` for each repo
-3. **Sync** — for each local branch with a tracked upstream:
+1. **Scan** — walks your configured scan path and includes known registry repos (`--no-scan` limits to registry only)
+2. **Default: mainline fetch** — for each repo, runs targeted `git fetch <remote> --prune` for mainline branches so `origin/main` (etc.) advance; **local branch refs are not moved**
+3. **With `--sync` (or non-mainline `branch_mode` in config, or `--risky`)** — full hydrate: runs `git fetch --all --prune` (optional `--tags`), then for each eligible local branch with a tracked upstream:
    - If the branch can be fast-forwarded: updates it
    - If the branch has local-only commits: skips (safe mode) or backs up and resets (risky mode)
    - If the working tree is dirty on the checked-out branch: skips
-4. **Report** — per-branch outcomes: updated, up-to-date, skipped (with reason), failed
+4. **Report** — per-branch outcomes: fetched, synced, up-to-date, skipped (with reason), failed
 
 ## Key Features
 
-- **One-command sync** — discover and update all repos from a single invocation
+- **One-command workflow** — discover repos, then default mainline fetch or full `--sync` hydrate
 - **Safety-first defaults** — never rewrites local-only commits; dirty worktrees are skipped, not clobbered
 - **Risky mode** — opt-in destructive realignment: creates a `git-rain-backup-*` ref, then hard-resets to upstream
 - **Non-checked-out branches** — updated directly without touching the worktree
-- **Interactive TUI** — streaming repo selector lets you pick exactly which repos to sync
+- **Interactive TUI (`--rain`)** — streaming repo picker (mirrors `git-fire --fire`), then the same default fetch or `--sync` behavior
 - **Registry** — discovered repos persist across runs; mark repos ignored to skip them permanently
 - **Dry run** — preview all repos that would be synced without making any changes
-- **Fetch-only mode** — run `git fetch --all --prune` everywhere without touching local refs
+- **Fetch-only mode (`--fetch-only`)** — run `git fetch --all --prune` per repo (all refs), without the mainline-only default
 
 ## Core Commands
 
@@ -176,13 +179,16 @@ Requires Go 1.24.2+.
 # dry run — preview repos, no changes
 git-rain --dry-run
 
-# default run — scan and sync all repos
+# default run — scan repos, fetch mainline remote-tracking refs
 git-rain
 
-# interactive repo selection before syncing
-git-rain --select
+# full local branch sync after scan
+git-rain --sync
 
-# fetch only (no local ref updates)
+# interactive TUI before default fetch or sync
+git-rain --rain
+
+# fetch everything from all remotes (broader than default mainline fetch)
 git-rain --fetch-only
 
 # sync only known registry repos, skip filesystem scan
@@ -191,8 +197,8 @@ git-rain --no-scan
 # scan a specific path
 git-rain --path ~/projects
 
-# risky mode — realign local-only commits after creating backup branches
-git-rain --risky
+# risky full sync — realign local-only commits after creating backup branches
+git-rain --sync --risky
 
 # generate example config file
 git-rain --init
@@ -202,9 +208,10 @@ git-rain --init
 
 | Flag | Description |
 |---|---|
-| `--dry-run` | Show what would be synced without making changes |
-| `--select` | Interactive TUI repo selector before syncing |
-| `--fetch-only` | Fetch from all remotes but skip local ref updates |
+| `--dry-run` | Show what would run without making changes |
+| `--rain` | Interactive TUI repo picker before running (like `git-fire --fire`) |
+| `--sync` | Update local branches from remotes (default is mainline fetch only) |
+| `--fetch-only` | `git fetch --all --prune` per repo (all refs); skips local branch updates |
 | `--path <dir>` | Scan path override (default: config `global.scan_path`) |
 | `--no-scan` | Skip filesystem scan; hydrate only known registry repos |
 | `--risky` | Allow destructive local branch realignment after creating backup refs |
@@ -248,9 +255,9 @@ GIT_RAIN_GLOBAL_RISKY_MODE=true git-rain
 GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
 ```
 
-## TUI Selector
+## Interactive TUI
 
-`git-rain --select` opens an interactive selector. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking.
+`git-rain --rain` opens an interactive picker. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking. After you confirm, the tool runs the **default mainline fetch** unless you also passed **`--sync`** (or config implies full sync).
 
 **Key bindings:**
 
@@ -258,7 +265,7 @@ GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
 |---|---|
 | `space` | Toggle repo selection |
 | `a` | Select all / deselect all |
-| `enter` | Confirm selection and begin sync |
+| `enter` | Confirm selection and begin fetch or sync |
 | `q` / `esc` | Abort |
 | `↑` / `↓` | Navigate |
 

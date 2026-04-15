@@ -131,6 +131,8 @@ const (
 	RainOutcomeFrozen = "frozen"
 	// RainOutcomeFailed — hard git error during local branch operation. ✗ Ice.
 	RainOutcomeFailed = "failed"
+	// RainOutcomeFetched — default run: remote-tracking ref refreshed; local branch unchanged.
+	RainOutcomeFetched = "fetched"
 )
 
 // RainBranchResult reports the outcome for one local branch.

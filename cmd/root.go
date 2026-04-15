@@ -32,7 +32,8 @@ var (
 	rainFetchOnly       bool
 	rainInit            bool
 	rainConfigFile      string
-	rainSelect          bool
+	rainRain            bool
+	rainSync            bool
 	rainBranchMode      string
 	rainSyncTags        bool
 	forceUnlockRegistry bool
@@ -40,8 +41,12 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "git-rain",
-	Short: "Sync all local repos from their remotes",
+	Short: "Fetch mainline refs from remotes (use --sync for full local branch hydrate)",
 	Long: `Git Rain — reverse sync from remotes
+
+Default (no flags): scans repos, then fetches mainline remote-tracking refs
+(main/master/trunk/develop/dev, gitflow prefixes, and configured patterns).
+Use --sync to fast-forward or realign local branches like a full hydrate.
 
 Safety-first defaults:
   - never rewrites local-only commits
@@ -68,14 +73,27 @@ func init() {
 	rootCmd.Flags().StringVar(&rainPath, "path", "", "Path to scan for repositories (default: config global.scan_path)")
 	rootCmd.Flags().BoolVar(&rainNoScan, "no-scan", false, "Skip filesystem scan; hydrate only known registry repos")
 	rootCmd.Flags().BoolVar(&rainRisky, "risky", false, "Allow destructive local branch realignment after creating backup refs")
-	rootCmd.Flags().BoolVar(&rainDryRun, "dry-run", false, "Show what would be synced without making changes")
+	rootCmd.Flags().BoolVar(&rainDryRun, "dry-run", false, "Show what would run without making changes")
 	rootCmd.Flags().BoolVar(&rainFetchOnly, "fetch-only", false, "Run git fetch --all --prune per repo but skip local ref updates")
 	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
 	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
-	rootCmd.Flags().BoolVar(&rainSelect, "select", false, "Interactive TUI repo selector before syncing")
+	rootCmd.Flags().BoolVar(&rainRain, "rain", false, "Interactive TUI repo picker before running (mirrors git-fire --fire)")
+	rootCmd.Flags().BoolVar(&rainSync, "sync", false, "Update local branches from remotes (default is mainline fetch only)")
 	rootCmd.Flags().StringVar(&rainBranchMode, "branch-mode", "", `Branch sync mode: mainline (default), checked-out, all-local, all-branches`)
 	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
+}
+
+// computeFullSync decides whether to run full branch hydration (RainRepository)
+// versus the default mainline-only remote fetch.
+func computeFullSync(explicitSync, riskyFlag, riskyCfg bool, branchFlag, branchCfg string) bool {
+	if explicitSync || riskyFlag || riskyCfg {
+		return true
+	}
+	if branchFlag != "" {
+		return true
+	}
+	return git.ParseBranchSyncMode(branchCfg) != git.BranchSyncMainline
 }
 
 func runRain(_ *cobra.Command, _ []string) error {
@@ -110,7 +128,8 @@ func runRain(_ *cobra.Command, _ []string) error {
 		MainlinePatterns: cfg.Global.MainlinePatterns,
 	}
 
-	if rainOpts.BranchMode == git.BranchSyncAllBranches {
+	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
+	if fullSync && rainOpts.BranchMode == git.BranchSyncAllBranches {
 		fmt.Println("⚠️  all-branches mode: remote branches will be created locally — this can produce many local branches")
 	}
 
@@ -155,11 +174,11 @@ func runRain(_ *cobra.Command, _ []string) error {
 	}
 
 	if rainDryRun {
-		return runDryRun(opts, rainOpts)
+		return runDryRun(opts, rainOpts, fullSync)
 	}
 
-	if rainSelect {
-		return runSelectStream(cfg, reg, regPath, opts, rainOpts)
+	if rainRain {
+		return runRainTUIStream(cfg, reg, regPath, opts, rainOpts, fullSync)
 	}
 
 	repos, err := git.ScanRepositories(opts)
@@ -193,10 +212,14 @@ func runRain(_ *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println("🌧️  Git Rain")
-	if riskyMode {
-		fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+	if fullSync {
+		if riskyMode {
+			fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+		} else {
+			fmt.Println("✓ Safe mode: local-only commits are preserved")
+		}
 	} else {
-		fmt.Println("✓ Safe mode: local-only commits are preserved")
+		fmt.Println("✓ Default: fetching mainline remote-tracking refs (use --sync to update local branches)")
 	}
 	fmt.Println()
 
@@ -218,6 +241,38 @@ func runRain(_ *cobra.Command, _ []string) error {
 			fmt.Println("    ↓  fetched")
 			fmt.Println()
 			totalUpdated++
+			continue
+		}
+
+		if !fullSync {
+			res, fetchErr := git.MainlineFetchRemotes(repo.Path, rainOpts)
+			if fetchErr != nil {
+				fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				totalFailed++
+				continue
+			}
+			if len(res.Branches) == 0 {
+				fmt.Println("    ·  no mainline branches to fetch")
+				fmt.Println()
+				continue
+			}
+			for _, br := range res.Branches {
+				symbol := weatherSymbol(br.Outcome)
+				line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
+				if br.Upstream != "" {
+					line += " ← " + br.Upstream
+				}
+				line += ": " + outcomeLabel(br.Outcome)
+				if br.Message != "" {
+					line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
+				}
+				fmt.Println(line)
+			}
+			fmt.Println()
+			totalUpdated += res.Updated
+			totalSkipped += res.Skipped
+			totalFrozen += res.Frozen
+			totalFailed += res.Failed
 			continue
 		}
 
@@ -280,6 +335,8 @@ func weatherSymbol(outcome string) string {
 		return "⚡"
 	case git.RainOutcomeUpToDate:
 		return "·"
+	case git.RainOutcomeFetched:
+		return "↓"
 	case git.RainOutcomeFrozen:
 		return "❄"
 	case git.RainOutcomeFailed:
@@ -298,6 +355,8 @@ func outcomeLabel(outcome string) string {
 		return "realigned"
 	case git.RainOutcomeUpToDate:
 		return "current"
+	case git.RainOutcomeFetched:
+		return "fetched"
 	case git.RainOutcomeFrozen:
 		return "frozen"
 	case git.RainOutcomeFailed:
@@ -337,19 +396,23 @@ func fetchFailureMessage(errMsg string) string {
 	return "fetch did not complete — try again when the remote is reachable"
 }
 
-func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions) error {
+func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
 	repos, err := git.ScanRepositories(scanOpts)
 	if err != nil {
 		return fmt.Errorf("repository scan failed: %w", err)
 	}
 
 	fmt.Println("🌧️  Git Rain — dry run")
-	if rainOpts.RiskyMode {
-		fmt.Println("⚠️  Risky mode would be enabled")
+	if fullSync {
+		if rainOpts.RiskyMode {
+			fmt.Println("⚠️  Risky mode would be enabled")
+		} else {
+			fmt.Println("✓ Safe mode: local-only commits would be preserved")
+		}
+		fmt.Printf("Branch mode: %s\n", rainOpts.BranchMode)
 	} else {
-		fmt.Println("✓ Safe mode: local-only commits would be preserved")
+		fmt.Println("✓ Default run would fetch mainline remote-tracking refs only (not --sync)")
 	}
-	fmt.Printf("Branch mode: %s\n", rainOpts.BranchMode)
 	fmt.Println()
 
 	if len(repos) == 0 {
@@ -357,11 +420,20 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions) error {
 		return nil
 	}
 
-	fmt.Printf("Would hydrate %d repositor", len(repos))
-	if len(repos) == 1 {
-		fmt.Println("y:")
+	if fullSync {
+		fmt.Printf("Would hydrate %d repositor", len(repos))
+		if len(repos) == 1 {
+			fmt.Println("y:")
+		} else {
+			fmt.Println("ies:")
+		}
 	} else {
-		fmt.Println("ies:")
+		fmt.Printf("Would fetch mainline remote-tracking refs in %d repositor", len(repos))
+		if len(repos) == 1 {
+			fmt.Println("y:")
+		} else {
+			fmt.Println("ies:")
+		}
 	}
 	for _, repo := range repos {
 		fmt.Printf("  • %s (%s)\n", repo.Name, repo.Path)
@@ -369,10 +441,10 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions) error {
 	return nil
 }
 
-// runSelectStream launches the interactive TUI repo selector (streaming mode).
-// The filesystem scan runs concurrently; repos stream into the selector as they
-// are discovered. After selection, rain runs on the chosen repos.
-func runSelectStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions) error {
+// runRainTUIStream launches the interactive TUI repo picker (streaming mode).
+// The filesystem scan runs concurrently; repos stream into the picker as they
+// are discovered. After confirmation, the same default or --sync behavior runs.
+func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
 	ctx, cancelScan := context.WithCancel(context.Background())
 	defer cancelScan()
 	opts.Ctx = ctx
@@ -456,16 +528,20 @@ func runSelectStream(cfg *config.Config, reg *registry.Registry, regPath string,
 	}
 	fmt.Println()
 
-	return runRainOnRepos(selected, rainOpts)
+	return runRainOnRepos(selected, rainOpts, fullSync)
 }
 
-// runRainOnRepos runs the rain operation on a pre-selected list of repos.
-func runRainOnRepos(repos []git.Repository, opts git.RainOptions) error {
+// runRainOnRepos runs fetch or full rain on a pre-selected list of repos.
+func runRainOnRepos(repos []git.Repository, opts git.RainOptions, fullSync bool) error {
 	fmt.Println("🌧️  Git Rain")
-	if opts.RiskyMode {
-		fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+	if fullSync {
+		if opts.RiskyMode {
+			fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+		} else {
+			fmt.Println("✓ Safe mode: local-only commits are preserved")
+		}
 	} else {
-		fmt.Println("✓ Safe mode: local-only commits are preserved")
+		fmt.Println("✓ Default: fetching mainline remote-tracking refs (use --sync to update local branches)")
 	}
 	fmt.Println()
 
@@ -487,6 +563,38 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions) error {
 			fmt.Println("    ↓  fetched")
 			fmt.Println()
 			totalUpdated++
+			continue
+		}
+
+		if !fullSync {
+			res, fetchErr := git.MainlineFetchRemotes(repo.Path, opts)
+			if fetchErr != nil {
+				fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				totalFailed++
+				continue
+			}
+			if len(res.Branches) == 0 {
+				fmt.Println("    ·  no mainline branches to fetch")
+				fmt.Println()
+				continue
+			}
+			for _, br := range res.Branches {
+				symbol := weatherSymbol(br.Outcome)
+				line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
+				if br.Upstream != "" {
+					line += " ← " + br.Upstream
+				}
+				line += ": " + outcomeLabel(br.Outcome)
+				if br.Message != "" {
+					line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
+				}
+				fmt.Println(line)
+			}
+			fmt.Println()
+			totalUpdated += res.Updated
+			totalSkipped += res.Skipped
+			totalFrozen += res.Frozen
+			totalFailed += res.Failed
 			continue
 		}
 
