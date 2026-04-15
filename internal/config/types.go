@@ -30,6 +30,19 @@ type GlobalConfig struct {
 	// Allow destructive local branch realignment during rain.
 	// When false, local-only commits are never rewritten.
 	RiskyMode bool `mapstructure:"risky_mode" toml:"risky_mode"`
+
+	// BranchMode controls which branches are synced per run.
+	// Options: "mainline" (default), "checked-out", "all-local", "all-branches".
+	BranchMode string `mapstructure:"branch_mode" toml:"branch_mode"`
+
+	// SyncTags fetches all tags from remotes in addition to branch refs.
+	// Off by default — tag fetches can pull large or unwanted histories.
+	SyncTags bool `mapstructure:"sync_tags" toml:"sync_tags"`
+
+	// MainlinePatterns are additional branch name patterns treated as mainline
+	// when branch_mode = "mainline". Supports exact names and prefix globs
+	// ending in "/" (e.g. "feat/", "JIRA-").
+	MainlinePatterns []string `mapstructure:"mainline_patterns" toml:"mainline_patterns"`
 }
 
 // UIConfig contains TUI/display settings

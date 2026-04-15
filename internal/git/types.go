@@ -27,26 +27,26 @@ type Remote struct {
 	URL  string // Remote URL
 }
 
-// RepoMode defines how to handle a repo
+// RepoMode defines the per-repo registry sync disposition.
 type RepoMode int
 
 const (
-	ModeLeaveUntouched   RepoMode = iota // Skip this repo
-	ModePushKnownBranches                // Push only branches that exist on remote
-	ModePushAll                          // Push all branches
-	ModePushCurrentBranch                // Push only current checked-out branch
+	ModeLeaveUntouched  RepoMode = iota // Skip this repo entirely
+	ModeSyncDefault                     // Sync using global defaults
+	ModeSyncAll                         // Sync all branches for this repo
+	ModeSyncCurrentBranch               // Sync only the checked-out branch
 )
 
 func (m RepoMode) String() string {
 	switch m {
 	case ModeLeaveUntouched:
 		return "leave-untouched"
-	case ModePushKnownBranches:
-		return "push-known-branches"
-	case ModePushAll:
-		return "push-all"
-	case ModePushCurrentBranch:
-		return "push-current-branch"
+	case ModeSyncDefault:
+		return "sync-default"
+	case ModeSyncAll:
+		return "sync-all"
+	case ModeSyncCurrentBranch:
+		return "sync-current-branch"
 	default:
 		return "unknown"
 	}
@@ -57,14 +57,46 @@ func ParseMode(s string) RepoMode {
 	switch s {
 	case "leave-untouched":
 		return ModeLeaveUntouched
-	case "", "push-known-branches":
-		return ModePushKnownBranches
-	case "push-all":
-		return ModePushAll
-	case "push-current-branch":
-		return ModePushCurrentBranch
+	case "sync-all":
+		return ModeSyncAll
+	case "sync-current-branch":
+		return ModeSyncCurrentBranch
+	default: // "", "sync-default", or unrecognised
+		return ModeSyncDefault
+	}
+}
+
+// BranchSyncMode controls which branches RainRepository will operate on.
+type BranchSyncMode string
+
+const (
+	// BranchSyncMainline syncs main/master/trunk/develop/dev and gitflow
+	// patterns (release/*, hotfix/*, support/*) that exist locally.
+	// This is the default — low risk, no branch sprawl.
+	BranchSyncMainline BranchSyncMode = "mainline"
+
+	// BranchSyncCheckedOut syncs only branches currently checked out in
+	// any worktree. Low risk; minimal surface area.
+	BranchSyncCheckedOut BranchSyncMode = "checked-out"
+
+	// BranchSyncAllLocal syncs every local branch that has a tracked
+	// upstream ref.
+	BranchSyncAllLocal BranchSyncMode = "all-local"
+
+	// BranchSyncAllBranches creates local tracking refs for every branch
+	// that exists on the remote but not locally, then syncs all of them.
+	// Can produce many local branches — use with care.
+	BranchSyncAllBranches BranchSyncMode = "all-branches"
+)
+
+// ParseBranchSyncMode converts a string to a BranchSyncMode.
+// Unrecognised values fall back to BranchSyncMainline.
+func ParseBranchSyncMode(s string) BranchSyncMode {
+	switch BranchSyncMode(s) {
+	case BranchSyncCheckedOut, BranchSyncAllLocal, BranchSyncAllBranches:
+		return BranchSyncMode(s)
 	default:
-		return ModeLeaveUntouched
+		return BranchSyncMainline
 	}
 }
 

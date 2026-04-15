@@ -24,11 +24,15 @@ func DefaultConfig() Config {
 			ScanDepth:        10,
 			ScanWorkers:      8,
 			FetchWorkers:     DefaultFetchWorkers,
-			DefaultMode:      "push-known-branches",
+			DefaultMode:      "sync-default",
 			RescanSubmodules: false,
 			DisableScan:      false,
 			RiskyMode:        false,
+			BranchMode:       "mainline",
+			SyncTags:         false,
+			MainlinePatterns: []string{},
 		},
+
 		UI: UIConfig{
 			ShowRainAnimation:       true,
 			RainAnimationMode:       UIRainAnimationBasic,
@@ -84,6 +88,21 @@ disable_scan = false
 # Allow destructive local branch realignment.
 # false = preserve local-only commits; true = permit hard resets to remote.
 risky_mode = false
+
+# Which branches to sync per run.
+# "mainline"     - main/master/trunk/develop/dev + gitflow patterns (default)
+# "checked-out"  - only branches currently checked out in any worktree
+# "all-local"    - every local branch with a tracked upstream
+# "all-branches" - all remote branches; creates local tracking refs if missing (many branches!)
+branch_mode = "mainline"
+
+# Fetch all tags from remotes. Off by default — can pull large or unwanted history.
+sync_tags = false
+
+# Additional branch name patterns treated as mainline when branch_mode = "mainline".
+# Exact names and "/" prefixes are both supported.
+# Examples: "develop", "feat/", "JIRA-"
+mainline_patterns = []
 
 [ui]
 # Show rain animation in the interactive repo selector (toggle live with 'r')

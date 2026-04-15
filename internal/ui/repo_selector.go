@@ -525,15 +525,15 @@ func (m RepoSelectorModel) updateIgnoredView(msg tea.KeyMsg, cmds []tea.Cmd) (te
 func cycleRepoMode(repo git.Repository) git.Repository {
 	switch repo.Mode {
 	case git.ModeLeaveUntouched:
-		repo.Mode = git.ModePushKnownBranches
-	case git.ModePushKnownBranches:
-		repo.Mode = git.ModePushAll
-	case git.ModePushAll:
-		repo.Mode = git.ModePushCurrentBranch
-	case git.ModePushCurrentBranch:
+		repo.Mode = git.ModeSyncDefault
+	case git.ModeSyncDefault:
+		repo.Mode = git.ModeSyncAll
+	case git.ModeSyncAll:
+		repo.Mode = git.ModeSyncCurrentBranch
+	case git.ModeSyncCurrentBranch:
 		repo.Mode = git.ModeLeaveUntouched
 	default:
-		repo.Mode = git.ModePushKnownBranches
+		repo.Mode = git.ModeSyncDefault
 	}
 	return repo
 }

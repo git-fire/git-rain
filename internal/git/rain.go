@@ -2,17 +2,76 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// mainlineBranchNames are exact branch names considered mainline.
+var mainlineBranchNames = map[string]bool{
+	"main":    true,
+	"master":  true,
+	"trunk":   true,
+	"develop": true,
+	"dev":     true,
+}
+
+// mainlineGitflowPrefixes are branch name prefixes considered mainline.
+var mainlineGitflowPrefixes = []string{
+	"release/",
+	"hotfix/",
+	"support/",
+}
+
+// matchesPatterns reports whether name matches any user-defined pattern.
+// Each pattern is tested as both an exact match and a prefix, so "JIRA-"
+// matches "JIRA-123" and "feat/" matches "feat/new-thing". Patterns ending
+// in "/" are prefix-only (never an exact branch name).
+func matchesPatterns(name string, patterns []string) bool {
+	for _, p := range patterns {
+		if p == "" {
+			continue
+		}
+		if name == p || strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// isMainlineBranch reports whether a branch name is a mainline or gitflow branch.
+func isMainlineBranch(name string) bool {
+	if mainlineBranchNames[name] {
+		return true
+	}
+	for _, prefix := range mainlineGitflowPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // RainOptions controls how rain/hydrate updates local branches from remotes.
 type RainOptions struct {
 	// RiskyMode allows destructive realignment of local-only commits after
 	// creating a backup branch.
 	RiskyMode bool
+
+	// BranchMode controls which branches are eligible for syncing.
+	// Defaults to BranchSyncMainline when zero.
+	BranchMode BranchSyncMode
+
+	// SyncTags fetches all tags from the remote in addition to branch refs.
+	// Off by default because tag fetches can pull large or unwanted history.
+	SyncTags bool
+
+	// MainlinePatterns extends the built-in mainline branch list with user-defined
+	// patterns. Each entry is either an exact branch name or a prefix ending in "/"
+	// (e.g. "feat/", "JIRA-"). Only used when BranchMode == BranchSyncMainline.
+	MainlinePatterns []string
 }
 
 const (
@@ -77,7 +136,11 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		return result, err
 	}
 	if hasRemote {
-		cmd := exec.Command("git", "fetch", "--all", "--prune")
+		fetchArgs := []string{"fetch", "--all", "--prune"}
+		if opts.SyncTags {
+			fetchArgs = append(fetchArgs, "--tags")
+		}
+		cmd := exec.Command("git", fetchArgs...)
 		cmd.Dir = repoPath
 		if output, fetchErr := cmd.CombinedOutput(); fetchErr != nil {
 			return result, commandError("git fetch --all --prune", fetchErr, output)
@@ -88,6 +151,40 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 	if err != nil {
 		return result, err
 	}
+
+	// Resolve effective branch sync mode.
+	mode := opts.BranchMode
+	if mode == "" {
+		mode = BranchSyncMainline
+	}
+
+	// all-branches: create local tracking refs for remote branches not yet local.
+	if mode == BranchSyncAllBranches && hasRemote {
+		newBranches, trackErr := createLocalTrackingFromRemotes(repoPath, branches)
+		if trackErr != nil {
+			fmt.Fprintf(os.Stderr, "note: could not enumerate remote branches: %v\n", trackErr)
+		} else {
+			branches = append(branches, newBranches...)
+		}
+	}
+
+	// Filter branches to those the selected mode covers.
+	filtered := branches[:0]
+	for _, b := range branches {
+		switch mode {
+		case BranchSyncMainline:
+			if isMainlineBranch(b.Branch) || matchesPatterns(b.Branch, opts.MainlinePatterns) {
+				filtered = append(filtered, b)
+			}
+		case BranchSyncCheckedOut:
+			if checkedOut[b.Branch] {
+				filtered = append(filtered, b)
+			}
+		default: // BranchSyncAllLocal, BranchSyncAllBranches
+			filtered = append(filtered, b)
+		}
+	}
+	branches = filtered
 
 	hasStaged, err := HasStagedChanges(repoPath)
 	if err != nil {
@@ -360,6 +457,66 @@ func updateBranchRef(repoPath, branch, oldSHA, newSHA string) error {
 		return commandError("git update-ref", err, out)
 	}
 	return nil
+}
+
+// createLocalTrackingFromRemotes enumerates remote-tracking refs and creates
+// local tracking branches for any remote branch that does not yet exist locally.
+// Returns the newly-created localBranchTracking entries.
+func createLocalTrackingFromRemotes(repoPath string, existing []localBranchTracking) ([]localBranchTracking, error) {
+	localSet := make(map[string]bool, len(existing))
+	for _, b := range existing {
+		localSet[b.Branch] = true
+	}
+
+	remotes, err := listRepoRemotes(repoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("git", "for-each-ref", "refs/remotes", "--format=%(refname:short)")
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, commandError("git for-each-ref refs/remotes", err, out)
+	}
+
+	var created []localBranchTracking
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		ref := strings.TrimSpace(line)
+		if ref == "" {
+			continue
+		}
+		var branchName, upstream string
+		for _, remote := range remotes {
+			prefix := remote + "/"
+			if strings.HasPrefix(ref, prefix) {
+				name := strings.TrimPrefix(ref, prefix)
+				if name == "HEAD" {
+					break
+				}
+				branchName = name
+				upstream = ref
+				break
+			}
+		}
+		if branchName == "" || localSet[branchName] {
+			continue
+		}
+		trackCmd := exec.Command("git", "branch", "--track", branchName, upstream)
+		trackCmd.Dir = repoPath
+		if trackOut, trackErr := trackCmd.CombinedOutput(); trackErr != nil {
+			fmt.Fprintf(os.Stderr, "note: could not create local tracking branch %s: %v (%s)\n",
+				branchName, trackErr, strings.TrimSpace(string(trackOut)))
+			continue
+		}
+		localSet[branchName] = true
+		created = append(created, localBranchTracking{
+			Branch:   branchName,
+			Upstream: upstream,
+			Current:  false,
+		})
+	}
+	return created, nil
 }
 
 func createRainBackupBranch(repoPath, branch, sha string) (string, error) {

@@ -33,6 +33,8 @@ var (
 	rainInit            bool
 	rainConfigFile      string
 	rainSelect          bool
+	rainBranchMode      string
+	rainSyncTags        bool
 	forceUnlockRegistry bool
 )
 
@@ -71,6 +73,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
 	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
 	rootCmd.Flags().BoolVar(&rainSelect, "select", false, "Interactive TUI repo selector before syncing")
+	rootCmd.Flags().StringVar(&rainBranchMode, "branch-mode", "", `Branch sync mode: mainline (default), checked-out, all-local, all-branches`)
+	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 }
 
@@ -94,6 +98,21 @@ func runRain(_ *cobra.Command, _ []string) error {
 		cfg.Global.DisableScan = true
 	}
 	riskyMode := cfg.Global.RiskyMode || rainRisky
+
+	branchModeStr := cfg.Global.BranchMode
+	if rainBranchMode != "" {
+		branchModeStr = rainBranchMode
+	}
+	rainOpts := git.RainOptions{
+		RiskyMode:        riskyMode,
+		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
+		SyncTags:         cfg.Global.SyncTags || rainSyncTags,
+		MainlinePatterns: cfg.Global.MainlinePatterns,
+	}
+
+	if rainOpts.BranchMode == git.BranchSyncAllBranches {
+		fmt.Println("⚠️  all-branches mode: remote branches will be created locally — this can produce many local branches")
+	}
 
 	reg := &registry.Registry{}
 	regPath := ""
@@ -136,11 +155,11 @@ func runRain(_ *cobra.Command, _ []string) error {
 	}
 
 	if rainDryRun {
-		return runDryRun(opts, riskyMode)
+		return runDryRun(opts, rainOpts)
 	}
 
 	if rainSelect {
-		return runSelectStream(cfg, reg, regPath, opts, riskyMode)
+		return runSelectStream(cfg, reg, regPath, opts, rainOpts)
 	}
 
 	repos, err := git.ScanRepositories(opts)
@@ -201,7 +220,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 			continue
 		}
 
-		res, rainErr := git.RainRepository(repo.Path, git.RainOptions{RiskyMode: riskyMode})
+		res, rainErr := git.RainRepository(repo.Path, rainOpts)
 		if rainErr != nil {
 			repoFailures++
 			fmt.Printf("  ❌ failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
@@ -258,18 +277,19 @@ func runRain(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runDryRun(opts git.ScanOptions, riskyMode bool) error {
-	repos, err := git.ScanRepositories(opts)
+func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions) error {
+	repos, err := git.ScanRepositories(scanOpts)
 	if err != nil {
 		return fmt.Errorf("repository scan failed: %w", err)
 	}
 
 	fmt.Println("🌧️  Git Rain — dry run")
-	if riskyMode {
+	if rainOpts.RiskyMode {
 		fmt.Println("⚠️  Risky mode would be enabled")
 	} else {
 		fmt.Println("✓ Safe mode: local-only commits would be preserved")
 	}
+	fmt.Printf("Branch mode: %s\n", rainOpts.BranchMode)
 	fmt.Println()
 
 	if len(repos) == 0 {
@@ -292,7 +312,7 @@ func runDryRun(opts git.ScanOptions, riskyMode bool) error {
 // runSelectStream launches the interactive TUI repo selector (streaming mode).
 // The filesystem scan runs concurrently; repos stream into the selector as they
 // are discovered. After selection, rain runs on the chosen repos.
-func runSelectStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, riskyMode bool) error {
+func runSelectStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions) error {
 	ctx, cancelScan := context.WithCancel(context.Background())
 	defer cancelScan()
 	opts.Ctx = ctx
@@ -376,13 +396,13 @@ func runSelectStream(cfg *config.Config, reg *registry.Registry, regPath string,
 	}
 	fmt.Println()
 
-	return runRainOnRepos(selected, riskyMode)
+	return runRainOnRepos(selected, rainOpts)
 }
 
 // runRainOnRepos runs the rain operation on a pre-selected list of repos.
-func runRainOnRepos(repos []git.Repository, riskyMode bool) error {
+func runRainOnRepos(repos []git.Repository, opts git.RainOptions) error {
 	fmt.Println("🌧️  Git Rain")
-	if riskyMode {
+	if opts.RiskyMode {
 		fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
 	} else {
 		fmt.Println("✓ Safe mode: local-only commits are preserved")
@@ -409,7 +429,7 @@ func runRainOnRepos(repos []git.Repository, riskyMode bool) error {
 			continue
 		}
 
-		res, rainErr := git.RainRepository(repo.Path, git.RainOptions{RiskyMode: riskyMode})
+		res, rainErr := git.RainRepository(repo.Path, opts)
 		if rainErr != nil {
 			repoFailures++
 			fmt.Printf("  ❌ failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
