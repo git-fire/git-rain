@@ -338,8 +338,8 @@ branch_mode = "mainline"
 mainline_patterns = ["JIRA-"]
 TOML
 
-  out="$("$BINARY" --path "${d}/workspace" 2>&1)"
-  assert_contains "s9: JIRA branch synced" "$out" "JIRA-123-my-ticket"
+  out="$("$BINARY" --path "${d}/workspace" --sync 2>&1)"
+  assert_contains "s9: JIRA branch listed" "$out" "JIRA-123-my-ticket"
   assert_contains "s9: JIRA branch fast-forwarded" "$out" "synced"
 }
 
