@@ -36,9 +36,6 @@ var (
 	forceUnlockRegistry bool
 )
 
-// errRunAborted is returned when the user cancels the TUI.
-var errRunAborted = errors.New("aborted")
-
 var rootCmd = &cobra.Command{
 	Use:   "git-rain",
 	Short: "Sync all local repos from their remotes",

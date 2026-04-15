@@ -702,8 +702,8 @@ func (m RepoSelectorModel) clampScroll(offset, cursor, visible, total int) int {
 		offset = 0
 	}
 	itemVisible := visible
+	var next int
 	for {
-		next := offset
 		if cursor < offset {
 			next = cursor
 		} else if cursor >= offset+itemVisible {

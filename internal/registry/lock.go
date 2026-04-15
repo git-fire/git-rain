@@ -81,9 +81,9 @@ func acquireLock(registryPath string) (release func(), err error) {
 	for {
 		f, createErr := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if createErr == nil {
-			fmt.Fprintf(f, "%d\n", os.Getpid())
-			f.Close()
-			return func() { os.Remove(lockPath) }, nil
+			_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
+			_ = f.Close()
+			return func() { _ = os.Remove(lockPath) }, nil
 		}
 
 		if !os.IsExist(createErr) {
@@ -92,7 +92,7 @@ func acquireLock(registryPath string) (release func(), err error) {
 
 		if staleLock(lockPath) {
 			fmt.Fprintf(os.Stderr, "⚠️  WARNING: removing stale registry lock (owner process is gone): %s\n", lockPath)
-			os.Remove(lockPath)
+			_ = os.Remove(lockPath)
 			continue
 		}
 
