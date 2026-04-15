@@ -100,7 +100,7 @@ changelog:
 brews:
   - name: git-rain
     repository:
-      owner: git-rain
+      owner: git-fire
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
       pull_request:

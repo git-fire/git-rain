@@ -161,7 +161,7 @@ jobs:
           set -euo pipefail
           RELEASE_VERSION="${RELEASE_TAG#v}"
           for attempt in $(seq 1 18); do
-            FORMULA_B64="$(gh api repos/git-rain/homebrew-tap/contents/Formula/git-rain.rb --jq '.content' 2>/dev/null || true)"
+            FORMULA_B64="$(gh api repos/git-fire/homebrew-tap/contents/Formula/git-rain.rb --jq '.content' 2>/dev/null || true)"
             if [ -n "$FORMULA_B64" ]; then
               FORMULA_CONTENT="$(printf '%s' "$FORMULA_B64" | tr -d '\n' | base64 -d)"
               if printf '%s' "$FORMULA_CONTENT" | grep -q "version \"${RELEASE_VERSION}\"" && \
