@@ -41,3 +41,22 @@ jobs:
 
       - name: Test
         run: go test -race -count=1 ./...
+
+  uat:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "uat@git-rain.test"
+          git config --global user.name "UAT Bot"
+
+      - name: Run UAT
+        run: bash scripts/uat.sh
