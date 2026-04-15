@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <linearGradient id="cloud-icon-l" x1="40" y1="2.5" x2="40" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#A4CEED"/>
+      <stop offset="100%" stop-color="#4180AC"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── STORM CLOUD ── -->
+  <circle cx="31" cy="20" r="8.5"  fill="url(#cloud-icon-l)"/>
+  <circle cx="40" cy="13" r="10.5" fill="url(#cloud-icon-l)"/>
+  <circle cx="49" cy="20" r="8.5"  fill="url(#cloud-icon-l)"/>
+  <rect   x="22.5" y="19.5" width="35" height="8.5" fill="url(#cloud-icon-l)"/>
+
+  <!-- ── LIGHTNING BOLT ── -->
+  <path d="M 40 28 L 37 36 L 41 36 L 38 43"
+        stroke="#F7E040" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round"
+        fill="none"/>
+
+  <!-- ── DAG: node A ── -->
+  <circle cx="40" cy="45" r="2.5" fill="#14527E"/>
+
+  <!-- ── DAG: branch edges ── -->
+  <line x1="40" y1="47.5" x2="32" y2="54"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="40" y1="47.5" x2="48" y2="54"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- ── DAG: node B (left) ── -->
+  <circle cx="32" cy="56" r="2.5" fill="#14527E"/>
+
+  <!-- ── DAG: node C (right) ── -->
+  <circle cx="48" cy="56" r="2.5" fill="#14527E"/>
+
+  <!-- ── DAG: merge edges ── -->
+  <line x1="32" y1="58.5" x2="40" y2="61.5"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="48" y1="58.5" x2="40" y2="61.5"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- ── COMMIT NODE ── -->
+  <circle cx="40" cy="68" r="6.5" fill="#1A1A1A"/>
+</svg>

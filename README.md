@@ -1,6 +1,11 @@
 # git-rain — Multi-Repo Sync CLI
 
 <p align="center">
+  <img src="assets/git-rain-lockup.svg#gh-light-mode-only" alt="git-rain: storm cloud, lightning bolt, falling DAG, commit node, wordmark" width="220" height="80">
+  <img src="assets/git-rain-lockup-dark.svg#gh-dark-mode-only" alt="git-rain: storm cloud, lightning bolt, falling DAG, commit node, wordmark" width="220" height="80">
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/status-1.0-brightgreen" alt="Status: 1.0">
   <img src="https://img.shields.io/badge/go-1.24.2-blue" alt="Go 1.24.2">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT">

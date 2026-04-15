@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 80" width="220" height="80">
+  <defs>
+    <!-- Storm cloud gradient: light sky → steel blue -->
+    <linearGradient id="cloud-l" x1="30" y1="2.5" x2="30" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#A4CEED"/>
+      <stop offset="100%" stop-color="#4180AC"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── STORM CLOUD ── -->
+  <circle cx="21" cy="20" r="8.5"  fill="url(#cloud-l)"/>
+  <circle cx="30" cy="13" r="10.5" fill="url(#cloud-l)"/>
+  <circle cx="39" cy="20" r="8.5"  fill="url(#cloud-l)"/>
+  <rect   x="12.5" y="19.5" width="35" height="8.5" fill="url(#cloud-l)"/>
+
+  <!-- ── LIGHTNING BOLT ── -->
+  <path d="M 30 28 L 27 36 L 31 36 L 28 43"
+        stroke="#F7E040" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round"
+        fill="none"/>
+
+  <!-- ── DAG: node A (where lightning meets the graph) ── -->
+  <circle cx="30" cy="45" r="2.5" fill="#14527E"/>
+
+  <!-- ── DAG: branch edges forking from A ── -->
+  <line x1="30" y1="47.5" x2="22" y2="54"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="30" y1="47.5" x2="38" y2="54"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- ── DAG: node B (left branch) ── -->
+  <circle cx="22" cy="56" r="2.5" fill="#14527E"/>
+
+  <!-- ── DAG: node C (right branch) ── -->
+  <circle cx="38" cy="56" r="2.5" fill="#14527E"/>
+
+  <!-- ── DAG: merge edges converging to stem ── -->
+  <line x1="22" y1="58.5" x2="30" y2="61.5"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="38" y1="58.5" x2="30" y2="61.5"
+        stroke="#4A8AB8" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- ── COMMIT STEM + NODE ── -->
+  <line x1="30" y1="61.5" x2="30" y2="61.5"
+        stroke="#1A1A1A" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="30" cy="68" r="6.5" fill="#1A1A1A"/>
+
+  <!-- ── WORDMARK ── -->
+  <text
+    x="58" y="38"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="28"
+    font-weight="500"
+    letter-spacing="-0.2"
+    fill="#1C1C1C"
+    dominant-baseline="middle">git-rain</text>
+</svg>
