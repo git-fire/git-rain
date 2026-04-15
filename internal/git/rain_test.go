@@ -277,10 +277,8 @@ func TestRainRepository_MainlineMode_UserPatternsExtendMainline(t *testing.T) {
 	testutil.RunGitCmd(t, peerDir, "commit", "-m", "jira advance")
 	testutil.RunGitCmd(t, peerDir, "push", "origin", "JIRA-123")
 
-	testutil.RunGitCmd(t, repo.Path(), "checkout", defaultBranch)
-	jiraBefore := testutil.GetCurrentSHA(t, repo.Path())
 	testutil.RunGitCmd(t, repo.Path(), "checkout", "JIRA-123")
-	jiraBefore = testutil.GetCurrentSHA(t, repo.Path())
+	jiraBefore := testutil.GetCurrentSHA(t, repo.Path())
 	testutil.RunGitCmd(t, repo.Path(), "checkout", defaultBranch)
 
 	result, err := RainRepository(repo.Path(), RainOptions{
