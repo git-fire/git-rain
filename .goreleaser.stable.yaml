@@ -134,7 +134,7 @@ release:
 
     **Homebrew (macOS/Linuxbrew)**
     ```sh
-    brew install git-rain/tap/git-rain
+    brew install git-fire/tap/git-rain
     ```
 
     **Windows (WinGet)**
