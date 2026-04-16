@@ -68,6 +68,7 @@ normalize_arch() {
   case "$raw_arch" in
     x86_64 | amd64) echo "amd64" ;;
     aarch64 | arm64) echo "arm64" ;;
+    # linux/arm is published as armv6 only; armv7l is ABI-compatible.
     armv6l | armv7l) echo "armv6" ;;
     i386 | i686) echo "386" ;;
     *)
@@ -105,18 +106,22 @@ install_binary() {
     fail "install path exists but is not a directory: $target_dir"
   fi
 
+  if [ ! -d "$target_dir" ]; then
+    if mkdir -p "$target_dir" 2>/dev/null; then
+      :
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo mkdir -p "$target_dir"
+    else
+      fail "could not create install directory: $target_dir"
+    fi
+  fi
+
   if [ -w "$target_dir" ]; then
     install -m 0755 "$src_bin" "$target_bin"
     return
   fi
 
-  if [ ! -e "$target_dir" ] && mkdir -p "$target_dir"; then
-    install -m 0755 "$src_bin" "$target_bin"
-    return
-  fi
-
   if command -v sudo >/dev/null 2>&1; then
-    sudo mkdir -p "$target_dir"
     sudo install -m 0755 "$src_bin" "$target_bin"
     return
   fi
@@ -124,6 +129,15 @@ install_binary() {
   fail "install directory is not writable and sudo is unavailable: $target_dir"
 }
 
+path_has_dir() {
+  local dir="$1"
+  case ":${PATH:-}:" in
+    *":${dir}:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Preflight: fail fast before downloads (curl/wget checked in download_to).
 need_cmd tar
 os="$(normalize_os)"
 arch="$(normalize_arch)"
@@ -163,4 +177,7 @@ tar -xzf "$archive_path" -C "$tmp_dir"
 install_binary "$tmp_dir/$BINARY_NAME" "$INSTALL_DIR"
 
 log "installed to $INSTALL_DIR/$BINARY_NAME"
+if ! path_has_dir "$INSTALL_DIR"; then
+  log "warning: $INSTALL_DIR is not on PATH; add it to your shell profile, e.g. export PATH=\"$INSTALL_DIR:\$PATH\""
+fi
 log "verify with: $BINARY_NAME --version"

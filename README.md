@@ -88,6 +88,8 @@ winget install git-rain.git-rain
 
 First-party install script (same idea as [`git-fire/scripts/install.sh`](https://github.com/git-fire/git-fire/blob/main/scripts/install.sh)): downloads the matching `.tar.gz` from [Releases](https://github.com/git-fire/git-rain/releases), verifies `checksums.txt`, and installs to `$INSTALL_DIR` (default `~/.local/bin`).
 
+The `main` URL below always runs the installer script from the latest commit on that branch, while the binary itself comes from the latest GitHub release (or from `VERSION` if you set it). That is convenient for copy-paste installs, but it means the script can drift ahead of any given release. For a fully pinned install, use the release tag in the URL (as in each release’s notes) and set `VERSION` to the same tag.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
 ```
@@ -96,6 +98,12 @@ Pin a version or install directory (environment variables must apply to `bash`, 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | VERSION=v0.9.1 INSTALL_DIR=/usr/local/bin bash
+```
+
+If your shell does not already include `~/.local/bin` on `PATH`, add it (the installer prints a reminder). Example for bash:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 Windows is not supported by this script — use **WinGet** or download a `.zip` from Releases.
