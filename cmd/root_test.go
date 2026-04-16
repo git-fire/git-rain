@@ -17,7 +17,7 @@ func resetFlags() {
 	rainNoScan = false
 	rainRisky = false
 	rainDryRun = false
-	rainMainlineFetch = false
+	rainFetchMainline = false
 	rainInit = false
 	rainConfigFile = ""
 	rainRain = false
@@ -64,13 +64,13 @@ func TestRootCommand_FlagParsing_Risky(t *testing.T) {
 	}
 }
 
-func TestRootCommand_FlagParsing_MainlineFetch(t *testing.T) {
+func TestRootCommand_FlagParsing_FetchMainline(t *testing.T) {
 	resetFlags()
-	if err := rootCmd.ParseFlags([]string{"--mainline-fetch"}); err != nil {
-		t.Fatalf("rootCmd.ParseFlags(--mainline-fetch) error = %v", err)
+	if err := rootCmd.ParseFlags([]string{"--fetch-mainline"}); err != nil {
+		t.Fatalf("rootCmd.ParseFlags(--fetch-mainline) error = %v", err)
 	}
-	if !rainMainlineFetch {
-		t.Fatal("expected rainMainlineFetch flag to be set")
+	if !rainFetchMainline {
+		t.Fatal("expected rainFetchMainline flag to be set")
 	}
 }
 
@@ -125,13 +125,13 @@ func TestRunRain_DefaultFetchAllDoesNotMoveLocalBranch(t *testing.T) {
 		t.Fatalf("runRain() default fetch error = %v", runErr)
 	}
 	if !strings.Contains(output, "git fetch --all --prune per repo") {
-		t.Fatalf("expected default fetch-all banner, got:\n%s", output)
+		t.Fatalf("expected default full-fetch banner, got:\n%s", output)
 	}
 	if !strings.Contains(output, "fetched") {
 		t.Fatalf("expected fetched line, got:\n%s", output)
 	}
 	if got := testutil.GetCurrentSHA(t, repo.Path()); got != localSHA {
-		t.Fatalf("default fetch-all should not move local branch (want=%s got=%s)", localSHA, got)
+		t.Fatalf("default full fetch should not move local branch (want=%s got=%s)", localSHA, got)
 	}
 }
 

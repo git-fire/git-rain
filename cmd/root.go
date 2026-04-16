@@ -29,7 +29,7 @@ var (
 	rainNoScan          bool
 	rainRisky           bool
 	rainDryRun          bool
-	rainMainlineFetch   bool
+	rainFetchMainline   bool
 	rainInit            bool
 	rainConfigFile      string
 	rainRain            bool
@@ -41,13 +41,23 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "git-rain",
-	Short: "Fetch all remotes (use --mainline-fetch for mainline-only; --sync hydrates locals)",
+	Short: "Fetch all remotes by default; narrower fetches and --sync hydrate locals",
 	Long: `Git Rain — reverse sync from remotes
 
-Default (no flags): scans repos, then runs git fetch --all --prune per repository
-(remote-tracking refs update; local branch refs are not moved).
-Use --mainline-fetch for targeted fetches of mainline branches only.
-Use --sync to fast-forward or realign local branches like a full hydrate.
+Modes (from lightest fetch to full local updates):
+
+  1. Default — git fetch --all --prune per repo (all remote-tracking refs; local
+     branch refs stay put). Checkout origin/<branch> anytime without extra fetch.
+
+  2. --fetch-mainline — targeted fetches for mainline branches only (faster when
+     you do not need every remote ref).
+
+  3. --sync — hydrate local branches from remotes. Use --branch-mode for scope
+     (mainline, checked-out, all-local, all-branches); all-branches can create
+     many local branches from the remote.
+
+  4. --risky — with --sync (or config), allows destructive realignment of
+     local-only commits after creating git-rain-backup-* refs.
 
 Safety-first defaults:
   - never rewrites local-only commits
@@ -75,18 +85,18 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainNoScan, "no-scan", false, "Skip filesystem scan; hydrate only known registry repos")
 	rootCmd.Flags().BoolVar(&rainRisky, "risky", false, "Allow destructive local branch realignment after creating backup refs")
 	rootCmd.Flags().BoolVar(&rainDryRun, "dry-run", false, "Show what would run without making changes")
-	rootCmd.Flags().BoolVar(&rainMainlineFetch, "mainline-fetch", false, "Fetch only mainline remote-tracking refs per remote instead of git fetch --all")
+	rootCmd.Flags().BoolVar(&rainFetchMainline, "fetch-mainline", false, "Fetch only mainline remote-tracking refs per remote (lighter than the default git fetch --all --prune)")
 	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
 	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
 	rootCmd.Flags().BoolVar(&rainRain, "rain", false, "Interactive TUI repo picker before running (mirrors git-fire --fire)")
-	rootCmd.Flags().BoolVar(&rainSync, "sync", false, "Update local branches from remotes (default is fetch --all --prune only)")
+	rootCmd.Flags().BoolVar(&rainSync, "sync", false, "Update local branches from remotes (default is git fetch --all --prune only)")
 	rootCmd.Flags().StringVar(&rainBranchMode, "branch-mode", "", `Branch sync mode: mainline (default), checked-out, all-local, all-branches`)
 	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 }
 
 // computeFullSync decides whether to run full branch hydration (RainRepository)
-// versus the default mainline-only remote fetch.
+// versus fetch-only paths (default full fetch or --fetch-mainline).
 func computeFullSync(explicitSync, riskyFlag, riskyCfg bool, branchFlag, branchCfg string) bool {
 	if explicitSync || riskyFlag || riskyCfg {
 		return true
@@ -219,10 +229,10 @@ func runRain(_ *cobra.Command, _ []string) error {
 		} else {
 			fmt.Println("✓ Safe mode: local-only commits are preserved")
 		}
-	} else if rainMainlineFetch {
-		fmt.Println("✓ Mainline fetch: updating mainline remote-tracking refs only (default is git fetch --all --prune)")
+	} else if rainFetchMainline {
+		fmt.Println("✓ Mainline fetch: mainline remote-tracking refs only (--fetch-mainline; default is git fetch --all --prune)")
 	} else {
-		fmt.Println("✓ Default: git fetch --all --prune per repo (use --mainline-fetch for mainline-only; --sync to update local branches)")
+		fmt.Println("✓ Default: git fetch --all --prune per repo (remote-tracking refs only; use --fetch-mainline for less, --sync to update locals)")
 	}
 	fmt.Println()
 
@@ -234,7 +244,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 	for _, repo := range active {
 		fmt.Printf("  %s\n", repo.Name)
 
-		if !fullSync && !rainMainlineFetch {
+		if !fullSync && !rainFetchMainline {
 			if fetchErr := fetchOnly(repo.Path, rainOpts); fetchErr != nil {
 				fmt.Printf("    ❄  (all branches): %s\n\n",
 					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
@@ -407,7 +417,7 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 			fmt.Println("✓ Safe mode: local-only commits would be preserved")
 		}
 		fmt.Printf("Branch mode: %s\n", rainOpts.BranchMode)
-	} else if rainMainlineFetch {
+	} else if rainFetchMainline {
 		fmt.Println("✓ Dry run would fetch mainline remote-tracking refs only (not full git fetch --all)")
 	} else {
 		fmt.Println("✓ Default dry run would run git fetch --all --prune per repo (not --sync)")
@@ -426,7 +436,7 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 		} else {
 			fmt.Println("ies:")
 		}
-	} else if rainMainlineFetch {
+	} else if rainFetchMainline {
 		fmt.Printf("Would fetch mainline remote-tracking refs in %d repositor", len(repos))
 		if len(repos) == 1 {
 			fmt.Println("y:")
@@ -546,10 +556,10 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions, fullSync bool)
 		} else {
 			fmt.Println("✓ Safe mode: local-only commits are preserved")
 		}
-	} else if rainMainlineFetch {
-		fmt.Println("✓ Mainline fetch: updating mainline remote-tracking refs only (default is git fetch --all --prune)")
+	} else if rainFetchMainline {
+		fmt.Println("✓ Mainline fetch: mainline remote-tracking refs only (--fetch-mainline; default is git fetch --all --prune)")
 	} else {
-		fmt.Println("✓ Default: git fetch --all --prune per repo (use --mainline-fetch for mainline-only; --sync to update local branches)")
+		fmt.Println("✓ Default: git fetch --all --prune per repo (use --fetch-mainline for less, --sync to update locals)")
 	}
 	fmt.Println()
 
@@ -561,7 +571,7 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions, fullSync bool)
 	for _, repo := range repos {
 		fmt.Printf("  %s\n", repo.Name)
 
-		if !fullSync && !rainMainlineFetch {
+		if !fullSync && !rainFetchMainline {
 			if fetchErr := fetchOnly(repo.Path, opts); fetchErr != nil {
 				fmt.Printf("    ❄  (all branches): %s\n\n",
 					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
