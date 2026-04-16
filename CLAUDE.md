@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`. By default it **fetches mainline remote-tracking refs** after scanning; **`--sync`** runs full local branch hydration (fast-forward / safe skip / risky reset). It is extracted from the `git-fire` codebase and promoted to a first-class tool.
+`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`. By default it runs **`git fetch --all --prune`** per repo after scanning (remote-tracking refs update; local branches are not moved). Use **`--mainline-fetch`** for targeted mainline remote-tracking fetches only; **`--sync`** runs full local branch hydration (fast-forward / safe skip / risky reset). It is extracted from the `git-fire` codebase and promoted to a first-class tool.
 
 Module: `github.com/git-rain/git-rain`
 Go version: 1.24.2
@@ -48,7 +48,7 @@ main.go
 
 **Key design decisions:**
 - Uses native `git` binary via `exec.Command` — not go-git.
-- Default run: `internal/git.MainlineFetchRemotes` (targeted `git fetch` per remote for mainline branches). Full hydrate: `RainRepository` when `--sync`, non-mainline `branch_mode`, or risky mode is active.
+- Default run: `git fetch --all --prune` (optional `--tags` from config/flag). Mainline-only remote fetch: `internal/git.MainlineFetchRemotes` when `--mainline-fetch`. Full hydrate: `RainRepository` when `--sync`, non-mainline `branch_mode`, or risky mode is active.
 - Interactive picker: `--rain` (mirrors `git-fire --fire`).
 - Backup branch prefix: `git-rain-backup-` (was `git-fire-rain-backup-` in git-fire).
 - Config env prefix: `GIT_RAIN_`.

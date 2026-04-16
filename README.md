@@ -155,23 +155,24 @@ Requires Go 1.24.2+.
 ## How It Works
 
 1. **Scan** — walks your configured scan path and includes known registry repos (`--no-scan` limits to registry only)
-2. **Default: mainline fetch** — for each repo, runs targeted `git fetch <remote> --prune` for mainline branches so `origin/main` (etc.) advance; **local branch refs are not moved**
-3. **With `--sync` (or non-mainline `branch_mode` in config, or `--risky`)** — full hydrate: runs `git fetch --all --prune` (optional `--tags`), then for each eligible local branch with a tracked upstream:
+2. **Default: fetch all remotes** — for each repo, runs `git fetch --all --prune` (optional `--tags` from config or `--tags` flag) so remote-tracking refs advance; **local branch refs are not moved**
+3. **`--mainline-fetch`** — targeted `git fetch <remote> --prune` for mainline branches only (lighter than the default full fetch)
+4. **With `--sync` (or non-mainline `branch_mode` in config, or `--risky`)** — full hydrate: runs `git fetch --all --prune` (optional `--tags`), then for each eligible local branch with a tracked upstream:
    - If the branch can be fast-forwarded: updates it
    - If the branch has local-only commits: skips (safe mode) or backs up and resets (risky mode)
    - If the working tree is dirty on the checked-out branch: skips
-4. **Report** — per-branch outcomes: fetched, synced, up-to-date, skipped (with reason), failed
+5. **Report** — per-branch outcomes on `--sync` / `--mainline-fetch`; default fetch-all prints one line per repo
 
 ## Key Features
 
-- **One-command workflow** — discover repos, then default mainline fetch or full `--sync` hydrate
+- **One-command workflow** — discover repos, then default `git fetch --all --prune`, optional `--mainline-fetch`, or full `--sync` hydrate
 - **Safety-first defaults** — never rewrites local-only commits; dirty worktrees are skipped, not clobbered
 - **Risky mode** — opt-in destructive realignment: creates a `git-rain-backup-*` ref, then hard-resets to upstream
 - **Non-checked-out branches** — updated directly without touching the worktree
-- **Interactive TUI (`--rain`)** — streaming repo picker (mirrors `git-fire --fire`), then the same default fetch or `--sync` behavior
+- **Interactive TUI (`--rain`)** — streaming repo picker (mirrors `git-fire --fire`), then the same default, `--mainline-fetch`, or `--sync` behavior
 - **Registry** — discovered repos persist across runs; mark repos ignored to skip them permanently
-- **Dry run** — preview all repos that would be synced without making any changes
-- **Fetch-only mode (`--fetch-only`)** — run `git fetch --all --prune` per repo (all refs), without the mainline-only default
+- **Dry run** — preview all repos that would be fetched or synced without making any changes
+- **`--mainline-fetch`** — mainline-only remote-tracking ref refresh instead of the default full `git fetch --all --prune`
 
 ## Core Commands
 
@@ -179,17 +180,17 @@ Requires Go 1.24.2+.
 # dry run — preview repos, no changes
 git-rain --dry-run
 
-# default run — scan repos, fetch mainline remote-tracking refs
+# default run — scan repos, git fetch --all --prune per repo
 git-rain
+
+# mainline-only remote-tracking ref refresh (lighter than default)
+git-rain --mainline-fetch
 
 # full local branch sync after scan
 git-rain --sync
 
 # interactive TUI before default fetch or sync
 git-rain --rain
-
-# fetch everything from all remotes (broader than default mainline fetch)
-git-rain --fetch-only
 
 # sync only known registry repos, skip filesystem scan
 git-rain --no-scan
@@ -210,8 +211,9 @@ git-rain --init
 |---|---|
 | `--dry-run` | Show what would run without making changes |
 | `--rain` | Interactive TUI repo picker before running (like `git-fire --fire`) |
-| `--sync` | Update local branches from remotes (default is mainline fetch only) |
-| `--fetch-only` | `git fetch --all --prune` per repo (all refs); skips local branch updates |
+| `--sync` | Update local branches from remotes (default is `git fetch --all --prune` only) |
+| `--mainline-fetch` | Targeted mainline `git fetch` per remote instead of `git fetch --all --prune` |
+| `--tags` | Also pass `--tags` on fetch operations |
 | `--path <dir>` | Scan path override (default: config `global.scan_path`) |
 | `--no-scan` | Skip filesystem scan; hydrate only known registry repos |
 | `--risky` | Allow destructive local branch realignment after creating backup refs |
