@@ -248,92 +248,21 @@ func runRain(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println()
 
-	totalUpdated := 0
-	totalSkipped := 0
-	totalFrozen := 0
-	totalFailed := 0
-
-	for _, repo := range active {
-		fmt.Printf("  %s\n", repo.Name)
-
-		absRepo, absErr := filepath.Abs(repo.Path)
-		if absErr != nil {
-			absRepo = repo.Path
-		}
-		repoOpts, pruneErr := applyRepoFetchPrune(repo.Path, rainOpts, absRepo, reg)
-		if pruneErr != nil {
-			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
-			totalFailed++
-			continue
-		}
-
-		if !fullSync && !rainFetchMainline {
-			if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
-				fmt.Printf("    ❄  (fetch --all): %s\n\n",
-					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
-				totalFrozen++
-				continue
-			}
-			fmt.Println("    ↓  fetched")
-			fmt.Println()
-			totalUpdated++
-			continue
-		}
-
-		if !fullSync {
-			res, fetchErr := git.MainlineFetchRemotes(repo.Path, repoOpts)
-			if fetchErr != nil {
-				fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
-				totalFailed++
-				continue
-			}
-			if len(res.Branches) == 0 {
-				fmt.Println("    ·  no mainline branches to fetch")
-				fmt.Println()
-				continue
-			}
-			printRainBranchResults(res.Branches, false)
-			fmt.Println()
-			totalUpdated += res.Updated
-			totalSkipped += res.Skipped
-			totalFrozen += res.Frozen
-			totalFailed += res.Failed
-			continue
-		}
-
-		res, rainErr := git.RainRepository(repo.Path, repoOpts)
-		if rainErr != nil {
-			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
-			totalFailed++
-			continue
-		}
-		if len(res.Branches) == 0 {
-			fmt.Println("    ·  no local branches")
-			fmt.Println()
-			continue
-		}
-
-		printRainBranchResults(res.Branches, true)
-		fmt.Println()
-
-		totalUpdated += res.Updated
-		totalSkipped += res.Skipped
-		totalFrozen += res.Frozen
-		totalFailed += res.Failed
-	}
+	totals := rainTotals{}
+	processRainRepositories(reg, active, rainOpts, fullSync, &totals)
 
 	fmt.Println(strings.Repeat("─", 48))
-	if totalFailed > 0 {
+	if totals.failed > 0 {
 		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totalUpdated, totalSkipped, totalFrozen, totalFailed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totalFailed)
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
 	}
-	if totalFrozen > 0 {
+	if totals.frozen > 0 {
 		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totalUpdated, totalSkipped, totalFrozen)
+			totals.updated, totals.skipped, totals.frozen)
 		return nil
 	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totalUpdated, totalSkipped)
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
 	return nil
 }
 
@@ -424,6 +353,85 @@ func fetchFailureMessage(errMsg string) string {
 		return "could not reach remote — check your network and try again"
 	}
 	return "fetch did not complete — try again when the remote is reachable"
+}
+
+type rainTotals struct {
+	updated int
+	skipped int
+	frozen  int
+	failed  int
+}
+
+// processRainRepositories runs fetch or full rain for each repository and accumulates outcome counts.
+func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals) {
+	for _, repo := range repos {
+		fmt.Printf("  %s\n", repo.Name)
+
+		absRepo, absErr := filepath.Abs(repo.Path)
+		if absErr != nil {
+			absRepo = repo.Path
+		}
+		repoOpts, pruneErr := applyRepoFetchPrune(repo.Path, rainOpts, absRepo, reg)
+		if pruneErr != nil {
+			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
+			totals.failed++
+			continue
+		}
+
+		if !fullSync && !rainFetchMainline {
+			if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
+				fmt.Printf("    ❄  (fetch --all): %s\n\n",
+					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
+				totals.frozen++
+				continue
+			}
+			fmt.Println("    ↓  fetched")
+			fmt.Println()
+			totals.updated++
+			continue
+		}
+
+		if !fullSync {
+			res, fetchErr := git.MainlineFetchRemotes(repo.Path, repoOpts)
+			if fetchErr != nil {
+				fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+				totals.failed++
+				continue
+			}
+			if len(res.Branches) == 0 {
+				fmt.Println("    ·  no mainline branches to fetch")
+				fmt.Println()
+				continue
+			}
+			printRainBranchResults(res.Branches, false)
+			fmt.Println()
+			totals.updated += res.Updated
+			totals.skipped += res.Skipped
+			totals.frozen += res.Frozen
+			totals.failed += res.Failed
+			continue
+		}
+
+		res, rainErr := git.RainRepository(repo.Path, repoOpts)
+		if rainErr != nil {
+			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+			totals.failed++
+			continue
+		}
+		if len(res.Branches) == 0 {
+			fmt.Println("    ·  no local branches")
+			fmt.Println()
+			continue
+		}
+
+		printRainBranchResults(res.Branches, true)
+		fmt.Println()
+
+		totals.updated += res.Updated
+		totals.skipped += res.Skipped
+		totals.frozen += res.Frozen
+		totals.failed += res.Failed
+	}
 }
 
 func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool, cfg *config.Config) error {
@@ -596,92 +604,21 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	}
 	fmt.Println()
 
-	totalUpdated := 0
-	totalSkipped := 0
-	totalFrozen := 0
-	totalFailed := 0
-
-	for _, repo := range repos {
-		fmt.Printf("  %s\n", repo.Name)
-
-		absRepo, absErr := filepath.Abs(repo.Path)
-		if absErr != nil {
-			absRepo = repo.Path
-		}
-		repoOpts, pruneErr := applyRepoFetchPrune(repo.Path, opts, absRepo, reg)
-		if pruneErr != nil {
-			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
-			totalFailed++
-			continue
-		}
-
-		if !fullSync && !rainFetchMainline {
-			if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
-				fmt.Printf("    ❄  (fetch --all): %s\n\n",
-					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
-				totalFrozen++
-				continue
-			}
-			fmt.Println("    ↓  fetched")
-			fmt.Println()
-			totalUpdated++
-			continue
-		}
-
-		if !fullSync {
-			res, fetchErr := git.MainlineFetchRemotes(repo.Path, repoOpts)
-			if fetchErr != nil {
-				fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
-				totalFailed++
-				continue
-			}
-			if len(res.Branches) == 0 {
-				fmt.Println("    ·  no mainline branches to fetch")
-				fmt.Println()
-				continue
-			}
-			printRainBranchResults(res.Branches, false)
-			fmt.Println()
-			totalUpdated += res.Updated
-			totalSkipped += res.Skipped
-			totalFrozen += res.Frozen
-			totalFailed += res.Failed
-			continue
-		}
-
-		res, rainErr := git.RainRepository(repo.Path, repoOpts)
-		if rainErr != nil {
-			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
-			totalFailed++
-			continue
-		}
-		if len(res.Branches) == 0 {
-			fmt.Println("    ·  no local branches")
-			fmt.Println()
-			continue
-		}
-
-		printRainBranchResults(res.Branches, true)
-		fmt.Println()
-
-		totalUpdated += res.Updated
-		totalSkipped += res.Skipped
-		totalFrozen += res.Frozen
-		totalFailed += res.Failed
-	}
+	totals := rainTotals{}
+	processRainRepositories(reg, repos, opts, fullSync, &totals)
 
 	fmt.Println(strings.Repeat("─", 48))
-	if totalFailed > 0 {
+	if totals.failed > 0 {
 		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totalUpdated, totalSkipped, totalFrozen, totalFailed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totalFailed)
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
 	}
-	if totalFrozen > 0 {
+	if totals.frozen > 0 {
 		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totalUpdated, totalSkipped, totalFrozen)
+			totals.updated, totals.skipped, totals.frozen)
 		return nil
 	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totalUpdated, totalSkipped)
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
 	return nil
 }
 
