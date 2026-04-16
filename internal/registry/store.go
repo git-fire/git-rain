@@ -87,7 +87,7 @@ func Save(reg *Registry, path string) error {
 func (r *Registry) Upsert(entry RegistryEntry) {
 	pkgMu.Lock()
 	defer pkgMu.Unlock()
-		for i, e := range r.Repos {
+	for i, e := range r.Repos {
 		if e.Path == entry.Path {
 			entry.AddedAt = e.AddedAt
 			if entry.RescanSubmodules == nil {

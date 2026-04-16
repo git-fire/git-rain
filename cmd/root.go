@@ -442,17 +442,15 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 	} else {
 		fmt.Println("✓ Default dry run would run git fetch --all per repo (not --sync)")
 	}
-	if !fullSync {
-		switch {
-		case rainNoPrune:
-			fmt.Println("✓ Fetch --prune: off for this run (--no-prune)")
-		case rainPrune:
-			fmt.Println("✓ Fetch --prune: on for this run (--prune)")
-		case cfg.Global.FetchPrune:
-			fmt.Println("✓ Fetch --prune: global default on (fetch_prune); per-repo git config rain.fetchprune or registry fetch_prune can override")
-		default:
-			fmt.Println("✓ Fetch --prune: off unless enabled per repo (git config rain.fetchprune), registry fetch_prune, global fetch_prune, or --prune")
-		}
+	switch {
+	case rainNoPrune:
+		fmt.Println("✓ Fetch --prune: off for this run (--no-prune)")
+	case rainPrune:
+		fmt.Println("✓ Fetch --prune: on for this run (--prune)")
+	case cfg.Global.FetchPrune:
+		fmt.Println("✓ Fetch --prune: global default on (fetch_prune); per-repo git config rain.fetchprune or registry fetch_prune can override")
+	default:
+		fmt.Println("✓ Fetch --prune: off unless enabled per repo (git config rain.fetchprune), registry fetch_prune, global fetch_prune, or --prune")
 	}
 	fmt.Println()
 
