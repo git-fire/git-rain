@@ -90,6 +90,8 @@ First-party install script (same idea as [`git-fire/scripts/install.sh`](https:/
 
 The `main` URL below always runs the installer script from the latest commit on that branch, while the binary itself comes from the latest GitHub release (or from `VERSION` if you set it). That is convenient for copy-paste installs, but it means the script can drift ahead of any given release. For a fully pinned install, use the release tag in the URL (as in each release’s notes) and set `VERSION` to the same tag.
 
+For repeated automation against the GitHub API (resolving `latest`), set **`GITHUB_TOKEN`** or **`GH_TOKEN`** so authenticated rate limits apply. `VERSION` may be a bare semver (`0.9.1`); the installer tries the `v`-prefixed release tag first, then the exact string you passed.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
 ```
@@ -100,10 +102,13 @@ Pin a version or install directory (environment variables must apply to `bash`, 
 curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | VERSION=v0.9.1 INSTALL_DIR=/usr/local/bin bash
 ```
 
-If your shell does not already include `~/.local/bin` on `PATH`, add it (the installer prints a reminder). Example for bash:
+If your shell does not already include `~/.local/bin` on `PATH`, add it (the installer prints a reminder). Example for bash (skips the line if `.local/bin` is already mentioned in `~/.bashrc`):
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+if ! grep -qF '.local/bin' ~/.bashrc 2>/dev/null; then
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+fi
+source ~/.bashrc
 ```
 
 Windows is not supported by this script — use **WinGet** or download a `.zip` from Releases.
