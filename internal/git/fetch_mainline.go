@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -15,9 +16,9 @@ type mainlineFetchTarget struct {
 	remoteBranch string
 }
 
-// MainlineFetchRemotes runs a targeted git fetch per remote for local branches that
-// qualify as mainline (including user patterns). Only remote-tracking refs are
-// updated; local branch refs are not moved.
+// MainlineFetchRemotes runs a targeted git fetch per remote for branches whose
+// upstream remote branch name qualifies as mainline (including user patterns).
+// Only remote-tracking refs are updated; local branch refs are not moved.
 func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error) {
 	result := RainResult{
 		RepoPath: repoPath,
@@ -36,14 +37,6 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 	if err != nil {
 		return result, err
 	}
-
-	filtered := branches[:0]
-	for _, b := range branches {
-		if isMainlineBranch(b.Branch) || matchesPatterns(b.Branch, opts.MainlinePatterns) {
-			filtered = append(filtered, b)
-		}
-	}
-	branches = filtered
 	if len(branches) == 0 {
 		return result, nil
 	}
@@ -62,6 +55,17 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 		if upstream == "" {
 			inferred, inferErr := inferUpstreamRef(repoPath, b.Branch)
 			if inferErr != nil {
+				if errors.Is(inferErr, ErrAmbiguousUpstream) {
+					result.Branches = append(result.Branches, RainBranchResult{
+						Branch:   b.Branch,
+						Upstream: "",
+						Current:  b.Current,
+						Outcome:  RainOutcomeSkippedAmbiguousUpstream,
+						Message:  fmt.Sprintf("infer upstream: %v", inferErr),
+					})
+					result.Skipped++
+					continue
+				}
 				result.Branches = append(result.Branches, RainBranchResult{
 					Branch:   b.Branch,
 					Upstream: "",
@@ -98,6 +102,11 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 			result.Skipped++
 			continue
 		}
+
+		if !isMainlineBranch(rb) && !matchesPatterns(rb, opts.MainlinePatterns) {
+			continue
+		}
+
 		targets = append(targets, mainlineFetchTarget{
 			local:        b.Branch,
 			upstream:     upstream,
