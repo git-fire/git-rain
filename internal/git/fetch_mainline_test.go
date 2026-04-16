@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	testutil "github.com/git-fire/git-testkit"
@@ -17,7 +18,11 @@ func revParse(t *testing.T, repoPath, ref string) string {
 	if err != nil {
 		t.Fatalf("git rev-parse %s: %v", ref, err)
 	}
-	return string(out[:len(out)-1]) // trim newline
+	rev := strings.TrimSpace(string(out))
+	if rev == "" {
+		t.Fatalf("git rev-parse %s: empty output", ref)
+	}
+	return rev
 }
 
 func TestMainlineFetchRemotes_UpdatesRemoteTrackingRefNotLocalBranch(t *testing.T) {

@@ -256,18 +256,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 				fmt.Println()
 				continue
 			}
-			for _, br := range res.Branches {
-				symbol := weatherSymbol(br.Outcome)
-				line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
-				if br.Upstream != "" {
-					line += " ← " + br.Upstream
-				}
-				line += ": " + outcomeLabel(br.Outcome)
-				if br.Message != "" {
-					line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
-				}
-				fmt.Println(line)
-			}
+			printRainBranchResults(res.Branches, false)
 			fmt.Println()
 			totalUpdated += res.Updated
 			totalSkipped += res.Skipped
@@ -288,21 +277,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 			continue
 		}
 
-		for _, br := range res.Branches {
-			symbol := weatherSymbol(br.Outcome)
-			line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
-			if br.Upstream != "" {
-				line += " ← " + br.Upstream
-			}
-			line += ": " + outcomeLabel(br.Outcome)
-			if br.Message != "" {
-				line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
-			}
-			if br.BackupBranch != "" {
-				line += " (backup: " + br.BackupBranch + ")"
-			}
-			fmt.Println(line)
-		}
+		printRainBranchResults(res.Branches, true)
 		fmt.Println()
 
 		totalUpdated += res.Updated
@@ -379,6 +354,25 @@ func outcomeLabel(outcome string) string {
 		return "dirty worktree"
 	default:
 		return outcome
+	}
+}
+
+// printRainBranchResults prints one line per branch (mainline fetch or full sync).
+func printRainBranchResults(branches []git.RainBranchResult, showBackup bool) {
+	for _, br := range branches {
+		symbol := weatherSymbol(br.Outcome)
+		line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
+		if br.Upstream != "" {
+			line += " ← " + br.Upstream
+		}
+		line += ": " + outcomeLabel(br.Outcome)
+		if br.Message != "" {
+			line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
+		}
+		if showBackup && br.BackupBranch != "" {
+			line += " (backup: " + br.BackupBranch + ")"
+		}
+		fmt.Println(line)
 	}
 }
 
@@ -578,18 +572,7 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions, fullSync bool)
 				fmt.Println()
 				continue
 			}
-			for _, br := range res.Branches {
-				symbol := weatherSymbol(br.Outcome)
-				line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
-				if br.Upstream != "" {
-					line += " ← " + br.Upstream
-				}
-				line += ": " + outcomeLabel(br.Outcome)
-				if br.Message != "" {
-					line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
-				}
-				fmt.Println(line)
-			}
+			printRainBranchResults(res.Branches, false)
 			fmt.Println()
 			totalUpdated += res.Updated
 			totalSkipped += res.Skipped
@@ -610,21 +593,7 @@ func runRainOnRepos(repos []git.Repository, opts git.RainOptions, fullSync bool)
 			continue
 		}
 
-		for _, br := range res.Branches {
-			symbol := weatherSymbol(br.Outcome)
-			line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
-			if br.Upstream != "" {
-				line += " ← " + br.Upstream
-			}
-			line += ": " + outcomeLabel(br.Outcome)
-			if br.Message != "" {
-				line += " — " + safety.SanitizeText(strings.TrimSpace(br.Message))
-			}
-			if br.BackupBranch != "" {
-				line += " (backup: " + br.BackupBranch + ")"
-			}
-			fmt.Println(line)
-		}
+		printRainBranchResults(res.Branches, true)
 		fmt.Println()
 
 		totalUpdated += res.Updated
