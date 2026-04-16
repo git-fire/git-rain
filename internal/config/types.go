@@ -39,6 +39,11 @@ type GlobalConfig struct {
 	// Off by default — tag fetches can pull large or unwanted histories.
 	SyncTags bool `mapstructure:"sync_tags" toml:"sync_tags"`
 
+	// FetchPrune passes --prune on git fetch (removes stale remote-tracking refs).
+	// Off by default — pruning is destructive to those refs. CLI --prune and per-repo
+	// git config rain.fetchprune / registry fetch_prune can still enable it.
+	FetchPrune bool `mapstructure:"fetch_prune" toml:"fetch_prune"`
+
 	// MainlinePatterns are additional branch name patterns treated as mainline
 	// when branch_mode = "mainline". Supports exact names and prefix globs
 	// ending in "/" (e.g. "feat/", "JIRA-").

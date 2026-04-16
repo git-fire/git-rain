@@ -30,6 +30,7 @@ func DefaultConfig() Config {
 			RiskyMode:        false,
 			BranchMode:       "mainline",
 			SyncTags:         false,
+			FetchPrune:       false,
 			MainlinePatterns: []string{},
 		},
 
@@ -98,6 +99,10 @@ branch_mode = "mainline"
 
 # Fetch all tags from remotes. Off by default — can pull large or unwanted history.
 sync_tags = false
+
+# Pass --prune on git fetch (removes stale remote-tracking refs). Off by default.
+# Enable per-run with --prune, per-repo with git config rain.fetchprune, or registry fetch_prune.
+fetch_prune = false
 
 # Additional branch name patterns treated as mainline when branch_mode = "mainline".
 # Exact names and "/" prefixes are both supported.

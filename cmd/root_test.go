@@ -22,6 +22,8 @@ func resetFlags() {
 	rainConfigFile = ""
 	rainRain = false
 	rainSync = false
+	rainPrune = false
+	rainNoPrune = false
 	forceUnlockRegistry = false
 }
 
@@ -124,7 +126,7 @@ func TestRunRain_DefaultFetchAllDoesNotMoveLocalBranch(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("runRain() default fetch error = %v", runErr)
 	}
-	if !strings.Contains(output, "git fetch --all --prune per repo") {
+	if !strings.Contains(output, "git fetch --all per repo") {
 		t.Fatalf("expected default full-fetch banner, got:\n%s", output)
 	}
 	if !strings.Contains(output, "fetched") {
