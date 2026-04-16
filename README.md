@@ -28,6 +28,7 @@ Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on 
 - [Install](#install)
   - [Homebrew (macOS/Linuxbrew)](#homebrew-macoslinuxbrew)
   - [WinGet (Windows)](#winget-windows)
+  - [curl installer (Linux / macOS)](#curl-installer-linux--macos)
   - [Linux native packages (.deb / .rpm)](#linux-native-packages-deb--rpm)
   - [Go install](#go-install)
   - [Binary archive (manual)](#binary-archive-manual)
@@ -65,6 +66,7 @@ git-rain --select
 |---|---|---|
 | Homebrew | `brew install git-fire/tap/git-rain` | macOS, Linuxbrew |
 | WinGet | `winget install git-rain.git-rain` | Windows |
+| curl script | [curl installer](#curl-installer-linux--macos) | Linux, macOS |
 | Linux package | Download `.deb` or `.rpm` from [GitHub Releases](https://github.com/git-fire/git-rain/releases) | Linux |
 | Go | `go install github.com/git-rain/git-rain@latest` | All (Go 1.24.2+) |
 | Binary archive | [GitHub Releases](https://github.com/git-fire/git-rain/releases) | All |
@@ -81,6 +83,22 @@ brew install git-rain
 ```powershell
 winget install git-rain.git-rain
 ```
+
+### curl installer (Linux / macOS)
+
+First-party install script (same idea as [`git-fire/scripts/install.sh`](https://github.com/git-fire/git-fire/blob/main/scripts/install.sh)): downloads the matching `.tar.gz` from [Releases](https://github.com/git-fire/git-rain/releases), verifies `checksums.txt`, and installs to `$INSTALL_DIR` (default `~/.local/bin`).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
+```
+
+Pin a version or install directory:
+
+```bash
+VERSION=v0.9.1 INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
+```
+
+Windows is not supported by this script — use **WinGet** or download a `.zip` from Releases.
 
 ### Linux native packages (`.deb` / `.rpm`)
 
