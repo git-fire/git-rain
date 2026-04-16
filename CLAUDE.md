@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`git-rain` is a standalone Go CLI that syncs local git repositories _from_ their remotes — the reverse of `git-fire`. It is extracted from the `git-fire` codebase and promoted to a first-class tool.
+`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`. By default it **fetches mainline remote-tracking refs** after scanning; **`--sync`** runs full local branch hydration (fast-forward / safe skip / risky reset). It is extracted from the `git-fire` codebase and promoted to a first-class tool.
 
 Module: `github.com/git-rain/git-rain`
 Go version: 1.24.2
@@ -48,10 +48,12 @@ main.go
 
 **Key design decisions:**
 - Uses native `git` binary via `exec.Command` — not go-git.
+- Default run: `internal/git.MainlineFetchRemotes` (targeted `git fetch` per remote for mainline branches). Full hydrate: `RainRepository` when `--sync`, non-mainline `branch_mode`, or risky mode is active.
+- Interactive picker: `--rain` (mirrors `git-fire --fire`).
 - Backup branch prefix: `git-rain-backup-` (was `git-fire-rain-backup-` in git-fire).
 - Config env prefix: `GIT_RAIN_`.
-- Safe mode (default): never rewrites local-only commits.
-- Risky mode (`--risky` / `config: global.risky_mode`): allows hard reset to upstream after creating a `git-rain-backup-*` ref.
+- Safe mode (default): never rewrites local-only commits (applies to `--sync` path).
+- Risky mode (`--risky` / `config: global.risky_mode`): allows hard reset to upstream after creating a `git-rain-backup-*` ref (implies full sync).
 
 ---
 

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,10 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrAmbiguousUpstream is returned by inferUpstreamRef when more than one
+// remote-tracking ref could serve as the upstream for a local branch.
+var ErrAmbiguousUpstream = errors.New("ambiguous upstream")
 
 // mainlineBranchNames are exact branch names considered mainline.
 var mainlineBranchNames = map[string]bool{
@@ -131,6 +136,8 @@ const (
 	RainOutcomeFrozen = "frozen"
 	// RainOutcomeFailed — hard git error during local branch operation. ✗ Ice.
 	RainOutcomeFailed = "failed"
+	// RainOutcomeFetched — default run: remote-tracking ref refreshed; local branch unchanged.
+	RainOutcomeFetched = "fetched"
 )
 
 // RainBranchResult reports the outcome for one local branch.
@@ -422,7 +429,7 @@ func inferUpstreamRef(repoPath, branch string) (string, error) {
 	if len(candidates) == 0 {
 		return "", nil
 	}
-	return "", fmt.Errorf("multiple candidate upstream refs for %s: %s", branch, strings.Join(candidates, ", "))
+	return "", fmt.Errorf("%w: multiple candidate upstream refs for %s: %s", ErrAmbiguousUpstream, branch, strings.Join(candidates, ", "))
 }
 
 func listRepoRemotes(repoPath string) ([]string, error) {

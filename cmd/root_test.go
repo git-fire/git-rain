@@ -20,6 +20,8 @@ func resetFlags() {
 	rainFetchOnly = false
 	rainInit = false
 	rainConfigFile = ""
+	rainRain = false
+	rainSync = false
 	forceUnlockRegistry = false
 }
 
@@ -62,6 +64,32 @@ func TestRootCommand_FlagParsing_Risky(t *testing.T) {
 	}
 }
 
+func TestComputeFullSync(t *testing.T) {
+	tests := []struct {
+		name                   string
+		explicitSync           bool
+		riskyFlag, riskyCfg    bool
+		branchFlag, branchCfg string
+		want                   bool
+	}{
+		{"explicit sync", true, false, false, "", "", true},
+		{"risky flag", false, true, false, "", "", true},
+		{"risky cfg", false, false, true, "", "", true},
+		{"branch flag set", false, false, false, "checked-out", "", true},
+		{"mainline config only", false, false, false, "", "mainline", false},
+		{"empty branch config", false, false, false, "", "", false},
+		{"all-local config", false, false, false, "", "all-local", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := computeFullSync(tt.explicitSync, tt.riskyFlag, tt.riskyCfg, tt.branchFlag, tt.branchCfg)
+			if got != tt.want {
+				t.Fatalf("computeFullSync(...) = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunRain_SafeModeSkipsLocalAheadBranch(t *testing.T) {
 	tmpHome := t.TempDir()
 	setTestUserDirs(t, tmpHome)
@@ -79,6 +107,7 @@ func TestRunRain_SafeModeSkipsLocalAheadBranch(t *testing.T) {
 
 	resetFlags()
 	rainPath = filepath.Dir(repo.Path())
+	rainSync = true
 
 	var runErr error
 	output := captureStdout(t, func() {
@@ -117,6 +146,7 @@ func TestRunRain_RiskyFlagResetsLocalAheadBranch(t *testing.T) {
 	resetFlags()
 	rainPath = filepath.Dir(repo.Path())
 	rainRisky = true
+	rainSync = true
 
 	var runErr error
 	output := captureStdout(t, func() {
