@@ -101,6 +101,10 @@ install_binary() {
   local target_dir="$2"
   local target_bin="$target_dir/$BINARY_NAME"
 
+  if [ -e "$target_dir" ] && [ ! -d "$target_dir" ]; then
+    fail "install path exists but is not a directory: $target_dir"
+  fi
+
   if [ -w "$target_dir" ]; then
     install -m 0755 "$src_bin" "$target_bin"
     return

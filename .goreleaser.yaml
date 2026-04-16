@@ -98,7 +98,7 @@ release:
 
     **curl (Linux / macOS)**
     ```sh
-    curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/{{ .Tag }}/scripts/install.sh | VERSION={{ .Tag }} bash
     ```
 
     **Binaries**

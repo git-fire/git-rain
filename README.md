@@ -92,10 +92,10 @@ First-party install script (same idea as [`git-fire/scripts/install.sh`](https:/
 curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
 ```
 
-Pin a version or install directory:
+Pin a version or install directory (environment variables must apply to `bash`, not `curl`):
 
 ```bash
-VERSION=v0.9.1 INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh | VERSION=v0.9.1 INSTALL_DIR=/usr/local/bin bash
 ```
 
 Windows is not supported by this script — use **WinGet** or download a `.zip` from Releases.
