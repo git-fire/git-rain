@@ -20,7 +20,7 @@ git-rain  →  fetch all remotes by default, or hydrate locals with --sync
 
 `git-rain` discovers git repositories under your scan path (and known registry entries). **Default:** `git fetch --all` per repo (no `--prune` unless you opt in) so **remote-tracking refs** update without moving local branches. **Lighter fetch:** `--fetch-mainline`. **Local updates:** `--sync` with `--branch-mode` / config. **Destructive realignment:** `--risky` on the sync path only.
 
-> **Warning: `--prune` is opt-in.** Passing `--prune` on `git fetch` deletes **stale remote-tracking branch refs** (for example `refs/remotes/origin/old-feature` after that branch was removed on the server). That is usually what you want for a tidy clone, but it **removes those ref names locally** until the next fetch brings them back if the branch reappears. Enable pruning only when you intend it: **`--prune`** / **`--no-prune`** for this run, **`global.fetch_prune`** in config, **`fetch_prune`** on a registry entry, or per-repo **`git config --local --bool rain.fetchprune true`**. Precedence for a given repo is: **CLI** → **repo `rain.fetchprune`** → **registry `fetch_prune`** → **global `fetch_prune`**.
+> **Warning: `--prune` is opt-in.** Passing `--prune` on `git fetch` deletes **stale remote-tracking branch refs** (for example `refs/remotes/origin/old-feature` after that branch was removed on the server). That is usually what you want for a tidy clone, but it **removes those ref names locally** until the next fetch brings them back if the branch reappears. Enable pruning only when you intend it, in this order of override: **`--prune`** / **`--no-prune`** for this run, per-repo **`git config --local --bool rain.fetchprune`**, **`fetch_prune`** on a registry entry, or **`global.fetch_prune`** in config. Effective precedence for each repo is: **CLI** → **`rain.fetchprune`** → **registry `fetch_prune`** → **global `fetch_prune`**.
 
 Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on your PATH.
 
@@ -223,7 +223,7 @@ git-rain --init
 | `--dry-run` | Show what would run without making changes |
 | `--rain` | Interactive TUI repo picker before running (like `git-fire --fire`) |
 | `--sync` | Update local branches from remotes (after `git fetch --all`; default run does not sync locals) |
-| `--fetch-mainline` | Mainline-only remote `git fetch` per remote instead of default `git fetch --all` |
+| `--fetch-mainline` | Mainline-only remote `git fetch` per remote instead of default `git fetch --all` (not with `--sync` or other full-sync triggers) |
 | `--branch-mode` | With `--sync`: `mainline`, `checked-out`, `all-local`, or `all-branches` (overrides config for this run) |
 | `--prune` | Pass `--prune` on fetch for this run (highest precedence; cannot combine with `--no-prune`) |
 | `--no-prune` | Never pass `--prune` on fetch for this run (overrides `--prune`, config, registry, and `rain.fetchprune`) |

@@ -149,6 +149,9 @@ func runRain(_ *cobra.Command, _ []string) error {
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
+	if fullSync && rainFetchMainline {
+		return fmt.Errorf("--fetch-mainline only applies to fetch-only runs; remove --sync, --risky, non-mainline --branch-mode, or risky_mode in config")
+	}
 	if fullSync && rainOpts.BranchMode == git.BranchSyncAllBranches {
 		fmt.Println("⚠️  all-branches mode: remote branches will be created locally — this can produce many local branches")
 	}
@@ -266,7 +269,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 
 		if !fullSync && !rainFetchMainline {
 			if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
-				fmt.Printf("    ❄  (all branches): %s\n\n",
+				fmt.Printf("    ❄  (fetch --all): %s\n\n",
 					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
 				totalFrozen++
 				continue
@@ -614,7 +617,7 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 
 		if !fullSync && !rainFetchMainline {
 			if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
-				fmt.Printf("    ❄  (all branches): %s\n\n",
+				fmt.Printf("    ❄  (fetch --all): %s\n\n",
 					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
 				totalFrozen++
 				continue
@@ -684,6 +687,12 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 
 func applyRepoFetchPrune(repoPath string, base git.RainOptions, absPath string, reg *registry.Registry) (git.RainOptions, error) {
 	opt := base
+	cliSet := rainPrune || rainNoPrune
+	cliVal := rainPrune && !rainNoPrune
+	if cliSet {
+		opt.FetchPrune = git.ResolveFetchPrune(cliSet, cliVal, false, false, nil, base.FetchPrune)
+		return opt, nil
+	}
 	var regPrune *bool
 	if reg != nil {
 		if e := reg.FindByPath(absPath); e != nil {
@@ -692,10 +701,9 @@ func applyRepoFetchPrune(repoPath string, base git.RainOptions, absPath string, 
 	}
 	gitSet, gitVal, err := git.ReadRainFetchPrune(repoPath)
 	if err != nil {
-		return opt, err
+		fmt.Fprintf(os.Stderr, "warning: reading %s in %s: %v\n", git.RainFetchPruneConfigKey, repoPath, err)
+		gitSet, gitVal = false, false
 	}
-	cliSet := rainPrune || rainNoPrune
-	cliVal := rainPrune && !rainNoPrune
 	opt.FetchPrune = git.ResolveFetchPrune(cliSet, cliVal, gitSet, gitVal, regPrune, base.FetchPrune)
 	return opt, nil
 }

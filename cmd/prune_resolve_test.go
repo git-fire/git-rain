@@ -168,6 +168,17 @@ func TestApplyRepoFetchPrune_NoPruneOverridesGitTrue(t *testing.T) {
 	}
 }
 
+func TestRunRain_FetchMainlineWithSyncErrors(t *testing.T) {
+	tmpHome := t.TempDir()
+	setTestUserDirs(t, tmpHome)
+	resetFlags()
+	rainFetchMainline = true
+	rainSync = true
+	if err := runRain(rootCmd, []string{}); err == nil {
+		t.Fatal("expected error when --fetch-mainline and --sync both set")
+	}
+}
+
 func TestRunRain_PruneAndNoPruneTogetherErrors(t *testing.T) {
 	tmpHome := t.TempDir()
 	setTestUserDirs(t, tmpHome)

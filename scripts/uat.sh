@@ -269,7 +269,7 @@ echo "── scenario 6: risky mode resets local-ahead branch"
 
 # ── SCENARIO 7: default full fetch (no local branch moves) ─────────────────
 echo
-echo "── scenario 7: default git fetch --all --prune"
+echo "── scenario 7: default git fetch --all (prune opt-in)"
 {
   scenario_begin s7
   d="$SCENARIO_D"

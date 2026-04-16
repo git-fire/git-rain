@@ -2,7 +2,16 @@
 
 ## Project Overview
 
-`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`. Operating modes, lightest to heaviest: **(1)** default `git fetch --all` per repo (`--prune` opt-in via `--prune`/`--no-prune`, `global.fetch_prune`, registry `fetch_prune`, or `git config --local rain.fetchprune`); **(2)** `--fetch-mainline`; **(3)** `--sync` + `branch_mode`; **(4)** `--risky` on the sync path. Extracted from the `git-fire` codebase and promoted to a first-class tool.
+`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`.
+
+Operating modes, lightest to heaviest:
+
+1. **Default** — `git fetch --all` per repo. `--prune` is opt-in. Precedence per repo: CLI (`--prune` / `--no-prune`) → local `git config rain.fetchprune` → registry `fetch_prune` → global `fetch_prune`.
+2. **`--fetch-mainline`** — targeted fetches for mainline branches only (incompatible with `--sync` / full-sync triggers; CLI returns an error if combined).
+3. **`--sync` + `branch_mode`** — hydrate local branches from remotes.
+4. **`--risky`** — on the sync path only; allows hard reset to upstream after backup refs.
+
+Extracted from the `git-fire` codebase and promoted to a first-class tool.
 
 Module: `github.com/git-rain/git-rain`
 Go version: 1.24.2
