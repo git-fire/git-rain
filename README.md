@@ -202,7 +202,7 @@ Requires Go 1.24.2+.
 ## Core Commands
 
 ```bash
-# dry run — preview repos, no changes
+# dry run — preview repos, no changes (still scans disk unless you add --no-scan)
 git-rain --dry-run
 
 # default run — scan repos, git fetch --all per repo
@@ -237,7 +237,7 @@ git-rain --init
 
 | Flag | Description |
 |---|---|
-| `--dry-run` | No `git fetch` / branch updates — still scans disk to list repos. The name is weather-themed irony: no “wet” git work, but not a no-op. |
+| `--dry-run` | No `git fetch` / branch updates — still scans disk to list repos **unless `--no-scan`** (then only registry-known paths are considered). The name is weather-themed irony: no “wet” git work, but not a no-op. |
 | `--rain` | Interactive TUI repo picker before running |
 | `--sync` | Update local branches from remotes (after `git fetch --all`; default run does not sync locals) |
 | `--fetch-mainline` | Mainline-only remote `git fetch` per remote instead of default `git fetch --all` (not with `--sync` or other full-sync triggers) |
@@ -300,7 +300,7 @@ GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
 
 **Registry (`repos.toml`)** — Writes use a cross-process lock file (`repos.toml.lock`), atomic replace, and stale-lock detection (owner PID). If a process dies mid-run you may still see a leftover lock: the CLI prompts to remove it when safe, or you can use **`--force-unlock-registry`** in scripts. This is the same class of “stale lock / don’t corrupt the database” problem as other multi-repo tools; treat lock removal like any other forced unlock — only when you are sure no other `git-rain` is running.
 
-**User config (`config.toml`)** — There is **no** cross-process lock on the config file today. The TUI saves settings with an atomic write (temp file then rename into place), so an ungraceful exit mid-save should not replace `config.toml` with a half-written file; you might leave an orphan `config.toml.tmp`, which is safe to delete if present. Avoid hand-editing `config.toml` at the same moment an interactive `--rain` session is saving, or two editors racing writes — a future shared lock could remove that race.
+**User config (`config.toml`)** — Writes use **`config.toml.lock`** with a **bounded wait** (so the `--rain` settings UI does not hang forever if another process holds the lock), then an **atomic replace** (PID-scoped temp file + rename). If the lock cannot be acquired in time, the TUI shows a save error and keeps in-memory settings. Avoid hand-editing `config.toml` while a session is saving; you might leave an orphan `*.tmp` after a crash — safe to delete if present.
 
 ## Interactive TUI
 

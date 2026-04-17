@@ -296,9 +296,11 @@ func (m RepoSelectorModel) viewConfig() string {
 			}
 		}
 
+		// Explicit space after ":" so label and value never abut (lipgloss Width
+		// on styled segments does not insert separators; Bugbot: "Default mode:sync-default").
 		line := fmt.Sprintf("%s  %s %s%s",
 			cursorStyle.Render(cur),
-			labelStyle.Render(row.label+":"),
+			labelStyle.Render(row.label+": "),
 			valueStyle.Render(val),
 			hintStr,
 		)

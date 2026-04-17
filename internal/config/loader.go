@@ -1,10 +1,12 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/pelletier/go-toml/v2"
@@ -97,6 +99,28 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.color_profile", defaults.UI.ColorProfile)
 }
 
+// Bounded lock acquisition for config.toml: SaveConfig runs from the TUI on
+// every settings keypress — a blocking flock.Lock() can freeze the UI if the
+// lock file is stale or another git-rain holds it. TryLockContext retries until
+// ctx expires; callers surface errors (e.g. TUI configSaveErr).
+const (
+	configFileLockTimeout = 2 * time.Second
+	configFileLockRetry   = 50 * time.Millisecond
+)
+
+func acquireConfigLock(lock *flock.Flock) error {
+	ctx, cancel := context.WithTimeout(context.Background(), configFileLockTimeout)
+	defer cancel()
+	locked, err := lock.TryLockContext(ctx, configFileLockRetry)
+	if err != nil {
+		return fmt.Errorf("config file lock: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("config file lock: timeout waiting for %s", lock.Path())
+	}
+	return nil
+}
+
 // writeAtomicReplacing writes data to path via a PID-scoped temp file and rename.
 // Removes the temp file if write or rename fails.
 func writeAtomicReplacing(path string, data []byte) error {
@@ -121,8 +145,8 @@ func SaveConfig(cfg *Config, path string) error {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	lock := flock.New(path + ".lock")
-	if err := lock.Lock(); err != nil {
-		return fmt.Errorf("config file lock: %w", err)
+	if err := acquireConfigLock(lock); err != nil {
+		return err
 	}
 	defer func() { _ = lock.Unlock() }()
 
@@ -228,8 +252,8 @@ func WriteExampleConfig(path string) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 	lock := flock.New(path + ".lock")
-	if err := lock.Lock(); err != nil {
-		return fmt.Errorf("config file lock: %w", err)
+	if err := acquireConfigLock(lock); err != nil {
+		return err
 	}
 	defer func() { _ = lock.Unlock() }()
 
