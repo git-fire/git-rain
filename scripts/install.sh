@@ -65,6 +65,7 @@ fetch_github_api() {
       wget -qO- \
         --header="Authorization: Bearer ${token}" \
         --header="Accept: application/vnd.github+json" \
+        --header="X-GitHub-Api-Version: 2022-11-28" \
         "$url"
     else
       wget -qO- "$url"
