@@ -270,11 +270,6 @@ func outcomeLabel(outcome string) string {
 	}
 }
 
-// printRainBranchResults prints one line per branch (mainline fetch or full sync).
-func printRainBranchResults(branches []git.RainBranchResult, showBackup bool) {
-	writeRainBranchResults(os.Stdout, branches, showBackup)
-}
-
 // writeRainBranchResults writes branch result lines to out (used by streaming
 // per-repo block builders so concurrent workers can serialize their output).
 func writeRainBranchResults(out io.Writer, branches []git.RainBranchResult, showBackup bool) {
@@ -291,7 +286,7 @@ func writeRainBranchResults(out io.Writer, branches []git.RainBranchResult, show
 		if showBackup && br.BackupBranch != "" {
 			line += " (backup: " + br.BackupBranch + ")"
 		}
-		fmt.Fprintln(out, line)
+		_, _ = fmt.Fprintln(out, line)
 	}
 }
 
@@ -341,7 +336,7 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	if total > 0 {
 		totalStr = strconv.Itoa(total)
 	}
-	fmt.Fprintf(out, "  [%d/%s] %s\n", current, totalStr, repo.Name)
+	_, _ = fmt.Fprintf(out, "  [%d/%s] %s\n", current, totalStr, repo.Name)
 
 	delta := rainTotals{}
 
@@ -351,20 +346,20 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	}
 	repoOpts, pruneErr := applyRepoFetchPrune(repo.Path, rainOpts, absRepo, reg)
 	if pruneErr != nil {
-		fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
+		_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
 		delta.failed++
 		return delta
 	}
 
 	if !fullSync && !rainFetchMainline {
 		if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
-			fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n",
+			_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n",
 				safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
 			delta.frozen++
 			return delta
 		}
-		fmt.Fprintln(out, "    ↓  fetched")
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "    ↓  fetched")
+		_, _ = fmt.Fprintln(out)
 		delta.updated++
 		return delta
 	}
@@ -372,17 +367,17 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	if !fullSync {
 		res, fetchErr := git.MainlineFetchRemotes(repo.Path, repoOpts)
 		if fetchErr != nil {
-			fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+			_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
 			delta.failed++
 			return delta
 		}
 		if len(res.Branches) == 0 {
-			fmt.Fprintln(out, "    ·  no mainline branches to fetch")
-			fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(out, "    ·  no mainline branches to fetch")
+			_, _ = fmt.Fprintln(out)
 			return delta
 		}
 		writeRainBranchResults(out, res.Branches, false)
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out)
 		delta.updated += res.Updated
 		delta.skipped += res.Skipped
 		delta.frozen += res.Frozen
@@ -392,18 +387,18 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 
 	res, rainErr := git.RainRepository(repo.Path, repoOpts)
 	if rainErr != nil {
-		fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+		_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
 		delta.failed++
 		return delta
 	}
 	if len(res.Branches) == 0 {
-		fmt.Fprintln(out, "    ·  no local branches")
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "    ·  no local branches")
+		_, _ = fmt.Fprintln(out)
 		return delta
 	}
 
 	writeRainBranchResults(out, res.Branches, true)
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 
 	delta.updated += res.Updated
 	delta.skipped += res.Skipped
