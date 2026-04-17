@@ -327,7 +327,7 @@ func (m RepoSelectorModel) viewConfig() string {
 	}
 
 	innerW := PanelBlockWidth(m.windowWidth)
-	return boxStyle.Width(innerW).Render(s.String())
+	return renderMainPanelBox(innerW, s.String())
 }
 
 func (m RepoSelectorModel) syncRuntimeFromConfig(cmds []tea.Cmd) (RepoSelectorModel, []tea.Cmd) {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -33,5 +34,30 @@ func TestPanelBlockAndTextWidth(t *testing.T) {
 	}
 	if got := RainDisplayWidth(80); got != 70 {
 		t.Fatalf("RainDisplayWidth(80) = %d, want 70 (same as PanelTextWidth)", got)
+	}
+	if got := panelInnerLipglossWidth(114); got != 110 {
+		t.Fatalf("panelInnerLipglossWidth(114) = %d, want 110", got)
+	}
+}
+
+func TestRenderMainPanelBoxWithEmojiLine(t *testing.T) {
+	// Title uses emoji; pre-normalize so border width matches lipgloss line width.
+	inner := "🌧️  GIT RAIN — SETTINGS\nsecond line"
+	out := renderMainPanelBox(40, inner)
+	lines := strings.Split(out, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected bordered output with multiple lines, got %d lines", len(lines))
+	}
+	// All non-empty lines should share the same lipgloss-measured width (border alignment).
+	widths := make(map[int]bool)
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		w := lipgloss.Width(line)
+		widths[w] = true
+	}
+	if len(widths) != 1 {
+		t.Fatalf("inconsistent line widths (border gaps on some terminals): %v", widths)
 	}
 }

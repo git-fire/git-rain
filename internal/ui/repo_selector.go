@@ -1003,7 +1003,7 @@ func (m RepoSelectorModel) View() string {
 	}
 
 	innerW := PanelBlockWidth(m.windowWidth)
-	return boxStyle.Width(innerW).Render(s.String())
+	return renderMainPanelBox(innerW, s.String())
 }
 
 func (m RepoSelectorModel) renderScanStatus() string {
@@ -1156,7 +1156,7 @@ func (m RepoSelectorModel) viewIgnoredMain() string {
 	s.WriteString(renderIgnoredViewHelp(cw))
 
 	innerW := PanelBlockWidth(m.windowWidth)
-	return boxStyle.Width(innerW).Render(s.String())
+	return renderMainPanelBox(innerW, s.String())
 }
 
 func (m RepoSelectorModel) persistMode(repoPath string, mode git.RepoMode) {
