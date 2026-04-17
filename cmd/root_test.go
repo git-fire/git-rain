@@ -17,11 +17,13 @@ func resetFlags() {
 	rainNoScan = false
 	rainRisky = false
 	rainDryRun = false
-	rainFetchOnly = false
+	rainFetchMainline = false
 	rainInit = false
 	rainConfigFile = ""
 	rainRain = false
 	rainSync = false
+	rainPrune = false
+	rainNoPrune = false
 	forceUnlockRegistry = false
 }
 
@@ -64,13 +66,23 @@ func TestRootCommand_FlagParsing_Risky(t *testing.T) {
 	}
 }
 
+func TestRootCommand_FlagParsing_FetchMainline(t *testing.T) {
+	resetFlags()
+	if err := rootCmd.ParseFlags([]string{"--fetch-mainline"}); err != nil {
+		t.Fatalf("rootCmd.ParseFlags(--fetch-mainline) error = %v", err)
+	}
+	if !rainFetchMainline {
+		t.Fatal("expected rainFetchMainline flag to be set")
+	}
+}
+
 func TestComputeFullSync(t *testing.T) {
 	tests := []struct {
-		name                   string
-		explicitSync           bool
-		riskyFlag, riskyCfg    bool
+		name                  string
+		explicitSync          bool
+		riskyFlag, riskyCfg   bool
 		branchFlag, branchCfg string
-		want                   bool
+		want                  bool
 	}{
 		{"explicit sync", true, false, false, "", "", true},
 		{"risky flag", false, true, false, "", "", true},
@@ -87,6 +99,41 @@ func TestComputeFullSync(t *testing.T) {
 				t.Fatalf("computeFullSync(...) = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunRain_DefaultFetchAllDoesNotMoveLocalBranch(t *testing.T) {
+	tmpHome := t.TempDir()
+	setTestUserDirs(t, tmpHome)
+
+	scenario := testutil.NewScenario(t)
+	remote := scenario.CreateBareRepo("remote")
+	repo := scenario.CreateRepo("rain-default-fetch").
+		WithRemote("origin", remote).
+		AddFile("tracked.txt", "v1\n").
+		Commit("init")
+	defaultBranch := repo.GetDefaultBranch()
+	repo.Push("origin", defaultBranch)
+	localSHA := testutil.GetCurrentSHA(t, repo.Path())
+
+	resetFlags()
+	rainPath = filepath.Dir(repo.Path())
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = runRain(rootCmd, []string{})
+	})
+	if runErr != nil {
+		t.Fatalf("runRain() default fetch error = %v", runErr)
+	}
+	if !strings.Contains(output, "git fetch --all per repo") {
+		t.Fatalf("expected default full-fetch banner, got:\n%s", output)
+	}
+	if !strings.Contains(output, "fetched") {
+		t.Fatalf("expected fetched line, got:\n%s", output)
+	}
+	if got := testutil.GetCurrentSHA(t, repo.Path()); got != localSHA {
+		t.Fatalf("default full fetch should not move local branch (want=%s got=%s)", localSHA, got)
 	}
 }
 

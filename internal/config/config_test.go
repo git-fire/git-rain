@@ -17,6 +17,9 @@ func TestDefaultConfig_Values(t *testing.T) {
 	if cfg.Global.SyncTags {
 		t.Error("default SyncTags should be false")
 	}
+	if cfg.Global.FetchPrune {
+		t.Error("default FetchPrune should be false (prune is opt-in)")
+	}
 	if len(cfg.Global.MainlinePatterns) != 0 {
 		t.Errorf("default MainlinePatterns = %v, want empty", cfg.Global.MainlinePatterns)
 	}
@@ -147,7 +150,7 @@ func TestValidate_ZeroFetchWorkers_Fixed(t *testing.T) {
 
 func TestExampleConfigTOML_ContainsBranchMode(t *testing.T) {
 	toml := config.ExampleConfigTOML()
-	for _, want := range []string{"branch_mode", "sync_tags", "mainline_patterns"} {
+	for _, want := range []string{"branch_mode", "sync_tags", "fetch_prune", "mainline_patterns"} {
 		if !contains(toml, want) {
 			t.Errorf("ExampleConfigTOML missing key %q", want)
 		}

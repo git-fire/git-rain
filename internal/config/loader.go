@@ -84,6 +84,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("global.risky_mode", defaults.Global.RiskyMode)
 	v.SetDefault("global.branch_mode", defaults.Global.BranchMode)
 	v.SetDefault("global.sync_tags", defaults.Global.SyncTags)
+	v.SetDefault("global.fetch_prune", defaults.Global.FetchPrune)
 	v.SetDefault("global.mainline_patterns", defaults.Global.MainlinePatterns)
 
 	v.SetDefault("ui.show_rain_animation", defaults.UI.ShowRainAnimation)

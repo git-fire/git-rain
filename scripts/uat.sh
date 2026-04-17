@@ -267,9 +267,9 @@ echo "── scenario 6: risky mode resets local-ahead branch"
   fi
 }
 
-# ── SCENARIO 7: fetch-only mode ───────────────────────────────────────────
+# ── SCENARIO 7: default full fetch (no local branch moves) ─────────────────
 echo
-echo "── scenario 7: fetch-only mode"
+echo "── scenario 7: default git fetch --all (prune opt-in)"
 {
   scenario_begin s7
   d="$SCENARIO_D"
@@ -283,13 +283,13 @@ echo "── scenario 7: fetch-only mode"
   git -C "$local" push --quiet origin HEAD:main
   local_sha="$(git -C "$local" rev-parse HEAD)"
 
-  out="$("$BINARY" --path "${d}/workspace" --fetch-only 2>&1)"
+  out="$("$BINARY" --path "${d}/workspace" 2>&1)"
   assert_contains "s7: fetched shown" "$out" "fetched"
   current_sha="$(git -C "$local" rev-parse HEAD)"
   if [[ "$current_sha" == "$local_sha" ]]; then
-    pass "s7: fetch-only did not move local ref"
+    pass "s7: default fetch did not move local ref"
   else
-    fail "s7: fetch-only modified local ref"
+    fail "s7: default fetch modified local ref"
   fi
 }
 

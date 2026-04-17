@@ -110,6 +110,10 @@ type RainOptions struct {
 	// Off by default because tag fetches can pull large or unwanted history.
 	SyncTags bool
 
+	// FetchPrune passes --prune on git fetch for this repo (resolved by cmd from
+	// CLI, git config, registry, and global config).
+	FetchPrune bool
+
 	// MainlinePatterns extends the built-in mainline branch list with user-defined
 	// patterns. Each entry is either an exact branch name or a prefix ending in "/"
 	// (e.g. "feat/", "JIRA-"). Only used when BranchMode == BranchSyncMainline.
@@ -188,7 +192,10 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		return result, err
 	}
 	if hasRemote {
-		fetchArgs := []string{"fetch", "--all", "--prune"}
+		fetchArgs := []string{"fetch", "--all"}
+		if opts.FetchPrune {
+			fetchArgs = append(fetchArgs, "--prune")
+		}
 		if opts.SyncTags {
 			fetchArgs = append(fetchArgs, "--tags")
 		}

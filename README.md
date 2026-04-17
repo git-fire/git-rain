@@ -15,10 +15,12 @@
 
 ```
 git-fire  →  commit + push everything out
-git-rain  →  fetch (default) or full reverse sync with --sync
+git-rain  →  fetch all remotes by default, or hydrate locals with --sync
 ```
 
-`git-rain` discovers git repositories under your scan path (and known registry entries), then by default **fetches mainline remote-tracking refs** only (`main`, `master`, `trunk`, `develop`, `dev`, gitflow prefixes, plus your configured patterns). Use **`--sync`** for full hydration: fast-forwarding branches, updating non-checked-out refs, and skipping anything that would rewrite local-only commits unless you enable risky mode.
+`git-rain` discovers git repositories under your scan path (and known registry entries). **Default:** `git fetch --all` per repo (no `--prune` unless you opt in) so **remote-tracking refs** update without moving local branches. **Lighter fetch:** `--fetch-mainline`. **Local updates:** `--sync` with `--branch-mode` / config. **Destructive realignment:** `--risky` on the sync path only.
+
+> **Warning: `--prune` is opt-in.** Passing `--prune` on `git fetch` deletes **stale remote-tracking branch refs** (for example `refs/remotes/origin/old-feature` after that branch was removed on the server). That is usually what you want for a tidy clone, but it **removes those ref names locally** until the next fetch brings them back if the branch reappears. Enable pruning only when you intend it, in this order of override: **`--prune`** / **`--no-prune`** for this run, per-repo **`git config --local --bool rain.fetchprune`**, **`fetch_prune`** on a registry entry, or **`global.fetch_prune`** in config. Effective precedence for each repo is: **CLI** → **`rain.fetchprune`** → **registry `fetch_prune`** → **global `fetch_prune`**.
 
 Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on your PATH.
 
@@ -52,8 +54,11 @@ Invocation note: `git-rain` and `git rain` are equivalent when `git-rain` is on 
 # preview first — shows what would be synced without touching anything
 git-rain --dry-run
 
-# default: scan repos, then fetch mainline remote-tracking refs from remotes
+# default: scan repos, then git fetch --all per repo (no --prune unless configured or --prune)
 git-rain
+
+# lighter: mainline remote-tracking refs only
+git-rain --fetch-mainline
 
 # full local branch sync (same safety/risky rules as before)
 git-rain --sync
@@ -155,23 +160,27 @@ Requires Go 1.24.2+.
 ## How It Works
 
 1. **Scan** — walks your configured scan path and includes known registry repos (`--no-scan` limits to registry only)
-2. **Default: mainline fetch** — for each repo, runs targeted `git fetch <remote> --prune` for mainline branches so `origin/main` (etc.) advance; **local branch refs are not moved**
-3. **With `--sync` (or non-mainline `branch_mode` in config, or `--risky`)** — full hydrate: runs `git fetch --all --prune` (optional `--tags`), then for each eligible local branch with a tracked upstream:
-   - If the branch can be fast-forwarded: updates it
-   - If the branch has local-only commits: skips (safe mode) or backs up and resets (risky mode)
-   - If the working tree is dirty on the checked-out branch: skips
-4. **Report** — per-branch outcomes: fetched, synced, up-to-date, skipped (with reason), failed
+
+2. **Default: fetch all remotes** — for each repo, `git fetch --all` plus optional `--prune` (see warning above), and optional `--tags` from config or `--tags`. Updates **remote-tracking refs** under `refs/remotes/` only; **local branch refs are not created or moved** (fast path: checkout `origin/<branch>` when you need a branch).
+
+3. **`--fetch-mainline`** — targeted `git fetch <remote>` for mainline branches (and `mainline_patterns`) only, with the same opt-in `--prune` rules as the default fetch.
+
+4. **`--sync`** — hydrates **local** branches: `git fetch --all` (same prune/tags rules), then updates eligible locals toward upstream. Scope comes from **`--branch-mode`** or config `branch_mode`: `mainline`, `checked-out`, `all-local`, or **`all-branches`** (creates local tracking branches for remotes you do not have yet — can be many branches).
+
+5. **`--risky`** — does not change fetch behavior by itself; on the **`--sync`** path it allows hard reset to upstream after creating `git-rain-backup-*` refs when you would otherwise skip local-only commits.
+
+6. **Report** — one summary line per repo on the default full fetch; per-branch lines on `--fetch-mainline` and `--sync`.
 
 ## Key Features
 
-- **One-command workflow** — discover repos, then default mainline fetch or full `--sync` hydrate
+- **One-command workflow** — default full remote fetch, optional `--fetch-mainline`, then `--sync` (+ `branch_mode`) for locals, `--risky` when you accept destructive realignment
 - **Safety-first defaults** — never rewrites local-only commits; dirty worktrees are skipped, not clobbered
 - **Risky mode** — opt-in destructive realignment: creates a `git-rain-backup-*` ref, then hard-resets to upstream
 - **Non-checked-out branches** — updated directly without touching the worktree
-- **Interactive TUI (`--rain`)** — streaming repo picker (mirrors `git-fire --fire`), then the same default fetch or `--sync` behavior
+- **Interactive TUI (`--rain`)** — streaming repo picker (mirrors `git-fire --fire`), then the same default fetch, `--fetch-mainline`, or `--sync` behavior
 - **Registry** — discovered repos persist across runs; mark repos ignored to skip them permanently
-- **Dry run** — preview all repos that would be synced without making any changes
-- **Fetch-only mode (`--fetch-only`)** — run `git fetch --all --prune` per repo (all refs), without the mainline-only default
+- **Dry run** — preview all repos that would be fetched or synced without making any changes
+- **`--fetch-mainline`** — mainline-only remote-tracking ref refresh instead of the default full `git fetch --all`
 
 ## Core Commands
 
@@ -179,17 +188,20 @@ Requires Go 1.24.2+.
 # dry run — preview repos, no changes
 git-rain --dry-run
 
-# default run — scan repos, fetch mainline remote-tracking refs
+# default run — scan repos, git fetch --all per repo
 git-rain
+
+# this run: prune stale remote-tracking refs for every repo
+git-rain --prune
+
+# mainline-only remote-tracking ref refresh (lighter than default)
+git-rain --fetch-mainline
 
 # full local branch sync after scan
 git-rain --sync
 
 # interactive TUI before default fetch or sync
 git-rain --rain
-
-# fetch everything from all remotes (broader than default mainline fetch)
-git-rain --fetch-only
 
 # sync only known registry repos, skip filesystem scan
 git-rain --no-scan
@@ -210,8 +222,12 @@ git-rain --init
 |---|---|
 | `--dry-run` | Show what would run without making changes |
 | `--rain` | Interactive TUI repo picker before running (like `git-fire --fire`) |
-| `--sync` | Update local branches from remotes (default is mainline fetch only) |
-| `--fetch-only` | `git fetch --all --prune` per repo (all refs); skips local branch updates |
+| `--sync` | Update local branches from remotes (after `git fetch --all`; default run does not sync locals) |
+| `--fetch-mainline` | Mainline-only remote `git fetch` per remote instead of default `git fetch --all` (not with `--sync` or other full-sync triggers) |
+| `--branch-mode` | With `--sync`: `mainline`, `checked-out`, `all-local`, or `all-branches` (overrides config for this run) |
+| `--prune` | Pass `--prune` on fetch for this run (highest precedence; cannot combine with `--no-prune`) |
+| `--no-prune` | Never pass `--prune` on fetch for this run (overrides `--prune`, config, registry, and `rain.fetchprune`) |
+| `--tags` | Also pass `--tags` on fetch operations |
 | `--path <dir>` | Scan path override (default: config `global.scan_path`) |
 | `--no-scan` | Skip filesystem scan; hydrate only known registry repos |
 | `--risky` | Allow destructive local branch realignment after creating backup refs |
@@ -237,7 +253,9 @@ Key options:
 scan_path    = "/home/you/projects"   # root to discover repos under
 scan_depth   = 5                      # max directory depth
 scan_workers = 8                      # parallel scan workers
-risky_mode   = false                  # enable risky mode globally
+risky_mode   = false                  # destructive realignment on --sync path only
+branch_mode  = "mainline"             # used with --sync: mainline | checked-out | all-local | all-branches
+fetch_prune  = false                  # pass --prune on fetch when true (default off; see README warning)
 default_mode = "safe"                 # "safe" or "risky"
 disable_scan = false                  # skip scan; use registry only
 
@@ -257,7 +275,7 @@ GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
 
 ## Interactive TUI
 
-`git-rain --rain` opens an interactive picker. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking. After you confirm, the tool runs the **default mainline fetch** unless you also passed **`--sync`** (or config implies full sync).
+`git-rain --rain` opens an interactive picker. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking. After you confirm, the tool runs the **default full fetch** (`git fetch --all`, prune opt-in) unless you passed **`--fetch-mainline`**, or **`--sync`** / config implies full branch hydration.
 
 **Key bindings:**
 
@@ -282,7 +300,7 @@ In risky mode, a `git-rain-backup-<branch>-<timestamp>` ref is created before an
 
 ## Registry
 
-Discovered repositories are stored in `~/.config/git-rain/repos.toml`. Each entry tracks path, name, status, and last-seen time.
+Discovered repositories are stored in `~/.config/git-rain/repos.toml`. Each entry tracks path, name, status, and last-seen time. Optional per-repo **`fetch_prune`** (boolean) opts that repository into `--prune` on fetch when set; it is overridden by that repo’s local **`git config rain.fetchprune`**, and both are overridden by **`--prune`** / **`--no-prune`** on the CLI for that run.
 
 Repo statuses:
 - `active` — present on disk and eligible for sync

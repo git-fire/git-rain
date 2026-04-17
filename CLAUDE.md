@@ -2,7 +2,16 @@
 
 ## Project Overview
 
-`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`. By default it **fetches mainline remote-tracking refs** after scanning; **`--sync`** runs full local branch hydration (fast-forward / safe skip / risky reset). It is extracted from the `git-fire` codebase and promoted to a first-class tool.
+`git-rain` is a standalone Go CLI for pulling remote state back down — the reverse of `git-fire`.
+
+Operating modes, lightest to heaviest:
+
+1. **Default** — `git fetch --all` per repo. `--prune` is opt-in. Precedence per repo: CLI (`--prune` / `--no-prune`) → local `git config rain.fetchprune` → registry `fetch_prune` → global `fetch_prune`.
+2. **`--fetch-mainline`** — targeted fetches for mainline branches only (incompatible with `--sync` / full-sync triggers; CLI returns an error if combined).
+3. **`--sync` + `branch_mode`** — hydrate local branches from remotes.
+4. **`--risky`** — on the sync path only; allows hard reset to upstream after backup refs.
+
+Extracted from the `git-fire` codebase and promoted to a first-class tool.
 
 Module: `github.com/git-rain/git-rain`
 Go version: 1.24.2
@@ -48,7 +57,7 @@ main.go
 
 **Key design decisions:**
 - Uses native `git` binary via `exec.Command` — not go-git.
-- Default run: `internal/git.MainlineFetchRemotes` (targeted `git fetch` per remote for mainline branches). Full hydrate: `RainRepository` when `--sync`, non-mainline `branch_mode`, or risky mode is active.
+- Default run: `git fetch --all` with optional `--prune` (resolved per repo: CLI → `rain.fetchprune` → registry `fetch_prune` → `global.fetch_prune`) and optional `--tags`. Mainline-only: `internal/git.MainlineFetchRemotes` when `--fetch-mainline`. Local hydrate: `RainRepository` when `--sync`, non-mainline `branch_mode`, or risky-only config forces full sync.
 - Interactive picker: `--rain` (mirrors `git-fire --fire`).
 - Backup branch prefix: `git-rain-backup-` (was `git-fire-rain-backup-` in git-fire).
 - Config env prefix: `GIT_RAIN_`.

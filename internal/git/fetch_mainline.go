@@ -136,7 +136,10 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 		}
 		sort.Strings(rbNames)
 
-		args := []string{"fetch", remote, "--prune"}
+		args := []string{"fetch", remote}
+		if opts.FetchPrune {
+			args = append(args, "--prune")
+		}
 		args = append(args, rbNames...)
 		if opts.SyncTags {
 			args = append(args, "--tags")

@@ -28,6 +28,10 @@ type RegistryEntry struct {
 	// nil means inherit the global rescan_submodules setting.
 	RescanSubmodules *bool `toml:"rescan_submodules,omitempty"`
 
+	// Per-repo override: pass --prune on git fetch for this repo.
+	// nil means use local git config rain.fetchprune if set, else global fetch_prune.
+	FetchPrune *bool `toml:"fetch_prune,omitempty"`
+
 	// When this repo was first added to the registry
 	AddedAt time.Time `toml:"added_at"`
 
