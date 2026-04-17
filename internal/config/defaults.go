@@ -113,7 +113,8 @@ mainline_patterns = []
 # Show rain animation in the interactive repo selector (toggle live with 'r')
 show_rain_animation = true
 
-# Animation mode: "basic" (rain drops only) or "advanced" (clouds + rain + flowers)
+# Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
+# or "matrix" (falling code characters)
 rain_animation_mode = "basic"
 
 # Show flavor quotes in the TUI banner

@@ -11,6 +11,15 @@ import (
 
 var rainDropChars = [...]string{"│", "╵", "·", "˙", "╷", "⁚", "⋮"}
 
+// matrixGlyphPool is half-width katakana + digits + symbols for a Matrix-style fall.
+var matrixGlyphPool = [...]string{
+	"ｱ", "ｲ", "ｳ", "ｴ", "ｵ", "ｶ", "ｷ", "ｸ", "ｹ", "ｺ", "ｻ", "ｼ", "ｽ", "ｾ", "ｿ",
+	"ﾀ", "ﾁ", "ﾂ", "ﾃ", "ﾄ", "ﾅ", "ﾆ", "ﾇ", "ﾈ", "ﾉ", "ﾊ", "ﾋ", "ﾌ", "ﾍ", "ﾎ",
+	"ﾏ", "ﾐ", "ﾑ", "ﾒ", "ﾓ", "ﾔ", "ﾕ", "ﾖ", "ﾗ", "ﾘ", "ﾙ", "ﾚ", "ﾛ", "ﾜ", "ﾝ",
+	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	":", ";", "<", ">", "?", "@", "#", "$", "%", "^", "&", "*", "+", "=",
+}
+
 // cloudChars for advanced mode top row
 var cloudChars = [...]string{"☁", "░", "▒", "▓", "█"}
 
@@ -96,10 +105,14 @@ func (rb *RainBackground) spawnDrop(minY int) {
 		startY = minY + rand.Intn(rb.Height/3)
 	}
 	speed := 1 + rand.Intn(2) // 1 or 2 frames per step
+	char := rainDropChars[rand.Intn(len(rainDropChars))]
+	if rb.Mode == config.UIRainAnimationMatrix {
+		char = matrixGlyphPool[rand.Intn(len(matrixGlyphPool))]
+	}
 	drop := RainDrop{
 		X:        rand.Intn(rb.Width),
 		Y:        startY,
-		Char:     rainDropChars[rand.Intn(len(rainDropChars))],
+		Char:     char,
 		ColorIdx: 0,
 		Age:      0,
 		MaxAge:   rb.Height + rand.Intn(6),
@@ -140,12 +153,12 @@ func (rb *RainBackground) Update() {
 			p.X = rb.Width - 1
 		}
 
-		// Color gradient: top (dark) → bottom (bright/white)
+		// Color gradient: top (dark) → bottom (bright)
 		progress := float64(p.Y-minY) / float64(rb.Height-minY)
 		if progress < 0 {
 			progress = 0
 		}
-		paletteLen := len(activeRainColors)
+		paletteLen := len(rainPaletteForMode(rb.Mode))
 		if paletteLen == 0 {
 			paletteLen = 1
 		}
@@ -194,11 +207,14 @@ func (rb *RainBackground) Render() string {
 		cells[i] = " "
 	}
 
-	styles := rainColorStyles()
+	styles := rainColorStylesForMode(rb.Mode)
 
 	// Place raindrops
 	for _, p := range rb.Drops {
 		if p.Y >= 0 && p.Y < rb.Height && p.X >= 0 && p.X < rb.Width {
+			if len(styles) == 0 {
+				continue
+			}
 			safeIdx := p.ColorIdx % len(styles)
 			if safeIdx < 0 {
 				safeIdx += len(styles)
@@ -266,7 +282,7 @@ func (rb *RainBackground) flowerStage(x int) int {
 // In basic mode it's a wave of drop chars; in advanced mode it shows a cloud line.
 func RenderRainWave(width, frame int, mode string) string {
 	var result strings.Builder
-	styles := rainColorStyles()
+	styles := rainColorStylesForMode(mode)
 	if len(styles) == 0 {
 		return strings.Repeat("~", width)
 	}
@@ -288,6 +304,20 @@ func RenderRainWave(width, frame int, mode string) string {
 				ch = "☁"
 			}
 			result.WriteString(cloudStyle.Render(ch))
+		}
+		return result.String()
+	}
+
+	if mode == config.UIRainAnimationMatrix {
+		for x := 0; x < width; x++ {
+			phase := float64(frame)*0.075 + float64(x)*0.24
+			y := 0.75*math.Sin(float64(x)*0.24+phase) + 0.25*math.Sin(float64(x)*0.11+phase*0.6)
+			char := matrixGlyphPool[(x+frame+int(y*7))%len(matrixGlyphPool)]
+			colorIdx := int(float64(x) / float64(width) * float64(len(styles)-1))
+			if colorIdx >= len(styles) {
+				colorIdx = len(styles) - 1
+			}
+			result.WriteString(styles[colorIdx].Render(char))
 		}
 		return result.String()
 	}
@@ -321,16 +351,38 @@ func RenderRainWave(width, frame int, mode string) string {
 	return result.String()
 }
 
-func rainColorStyles() []lipgloss.Style {
+func rainPaletteForMode(mode string) []lipgloss.Color {
+	if mode == config.UIRainAnimationMatrix {
+		return matrixRainColors
+	}
 	if len(activeRainColors) == 0 {
+		return []lipgloss.Color{lipgloss.Color("#4488CC")}
+	}
+	return activeRainColors
+}
+
+func rainColorStylesForMode(mode string) []lipgloss.Style {
+	colors := rainPaletteForMode(mode)
+	if len(colors) == 0 {
 		return []lipgloss.Style{
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#4488CC")),
 		}
 	}
-	styles := make([]lipgloss.Style, len(activeRainColors))
-	for i, color := range activeRainColors {
+	styles := make([]lipgloss.Style, len(colors))
+	for i, color := range colors {
 		styles[i] = lipgloss.NewStyle().Foreground(color)
 	}
 	return styles
 }
 
+// matrixRainColors is a green terminal-rain palette (dark → bright).
+var matrixRainColors = []lipgloss.Color{
+	lipgloss.Color("#001A00"),
+	lipgloss.Color("#003B00"),
+	lipgloss.Color("#006400"),
+	lipgloss.Color("#008F11"),
+	lipgloss.Color("#00AA22"),
+	lipgloss.Color("#22CC44"),
+	lipgloss.Color("#55EE77"),
+	lipgloss.Color("#CCFFCC"),
+}

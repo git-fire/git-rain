@@ -40,6 +40,7 @@ var configRows = []configRow{
 	{label: "Rain animation mode", kind: configRowEnum, options: []string{
 		config.UIRainAnimationBasic,
 		config.UIRainAnimationAdvanced,
+		config.UIRainAnimationMatrix,
 	}},
 	{label: "Show flavor quotes", kind: configRowBool},
 	{label: "Flavor quote behavior", kind: configRowEnum, options: []string{

@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Horizontal layout for the main Bubble Tea panel (must stay consistent across
 // repo list, ignored list, settings, rain banner, and PathWidthFor).
@@ -66,6 +70,22 @@ func renderMainPanelBox(innerBlockWidth int, inner string) string {
 		return boxStyle.Render(inner)
 	}
 	cells := panelInnerLipglossWidth(innerBlockWidth)
-	normalized := lipgloss.NewStyle().Width(cells).Render(inner)
+	normalized := normalizePanelInnerLines(inner, cells)
 	return boxStyle.Width(innerBlockWidth).Render(normalized)
+}
+
+// normalizePanelInnerLines pads each logical line to exactly `cells` lipgloss
+// cells. Applying Width() to the whole block wraps at word boundaries and can
+// leave a row visually wider than `cells` when it contains wide glyphs (emoji),
+// which stretches the rounded border. Per-line Width avoids that.
+func normalizePanelInnerLines(inner string, cells int) string {
+	if cells < 1 {
+		return inner
+	}
+	pad := lipgloss.NewStyle().Width(cells)
+	lines := strings.Split(inner, "\n")
+	for i, line := range lines {
+		lines[i] = pad.Render(line)
+	}
+	return strings.Join(lines, "\n")
 }
