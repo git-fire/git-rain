@@ -176,6 +176,11 @@ func (c *Config) Validate() error {
 	if dm == "" {
 		dm = DefaultConfig().Global.DefaultMode
 	}
+	// Older releases wrote push-* default_mode strings; ParseMode already treated
+	// those as sync-default — accept them on load for backward compatibility.
+	if strings.HasPrefix(dm, "push-") {
+		dm = "sync-default"
+	}
 	switch dm {
 	case "leave-untouched", "sync-default", "sync-all", "sync-current-branch":
 		c.Global.DefaultMode = dm
