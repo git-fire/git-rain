@@ -102,6 +102,36 @@ func TestComputeFullSync(t *testing.T) {
 	}
 }
 
+func TestRunRain_DryRunSyncShowsPruneResolution(t *testing.T) {
+	tmpHome := t.TempDir()
+	setTestUserDirs(t, tmpHome)
+
+	scenario := testutil.NewScenario(t)
+	repo := scenario.CreateRepo("dry-sync-prune").
+		AddFile("a.txt", "x\n").
+		Commit("init")
+
+	resetFlags()
+	rainPath = filepath.Dir(repo.Path())
+	rainDryRun = true
+	rainSync = true
+	rainPrune = true
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = runRain(rootCmd, []string{})
+	})
+	if runErr != nil {
+		t.Fatalf("runRain() dry-run sync error = %v", runErr)
+	}
+	if !strings.Contains(output, "Fetch --prune: on for this run (--prune)") {
+		t.Fatalf("expected dry-run to show prune on for --sync path, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Would hydrate") {
+		t.Fatalf("expected dry-run hydrate wording for --sync, got:\n%s", output)
+	}
+}
+
 func TestRunRain_DefaultFetchAllDoesNotMoveLocalBranch(t *testing.T) {
 	tmpHome := t.TempDir()
 	setTestUserDirs(t, tmpHome)

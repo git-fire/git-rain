@@ -27,10 +27,10 @@ const (
 
 var configRows = []configRow{
 	{label: "Default mode", kind: configRowEnum, options: []string{
-		"push-known-branches",
-		"push-all",
+		"sync-default",
+		"sync-all",
+		"sync-current-branch",
 		"leave-untouched",
-		"push-current-branch",
 	}},
 	{label: "Disable scan", kind: configRowBool},
 	{label: "Fetch workers", kind: configRowEnum, options: []string{
@@ -244,10 +244,10 @@ func (m RepoSelectorModel) saveConfig() RepoSelectorModel {
 
 func (m RepoSelectorModel) viewConfig() string {
 	var s strings.Builder
+	cw := m.contentWidth()
 
 	if m.rainVisible() {
-		cw := m.contentWidth()
-		rainW := min(cw, 70)
+		rainW := RainDisplayWidth(m.windowWidth)
 		s.WriteString(m.rainBg.Render())
 		s.WriteString("\n")
 		s.WriteString(RenderRainWave(rainW, m.frameIndex, m.rainAnimationMode))
@@ -259,7 +259,12 @@ func (m RepoSelectorModel) viewConfig() string {
 		Foreground(activeProfile().titleFg).
 		Background(activeProfile().titleBg).
 		Padding(0, 2)
-	s.WriteString(titleGradient.Render("🌧️  GIT RAIN — SETTINGS"))
+	title := "🌧️  GIT RAIN — SETTINGS"
+	if cw <= 0 {
+		s.WriteString(titleGradient.Render(title))
+	} else {
+		s.WriteString(titleGradient.MaxWidth(cw).Render(title))
+	}
 	s.WriteString("\n\n")
 
 	cursorStyle := lipgloss.NewStyle().Foreground(activeProfile().configCursor).Bold(true)
@@ -283,29 +288,34 @@ func (m RepoSelectorModel) viewConfig() string {
 			case configRowComingSoon:
 				hintStr = dimStyle.Render("  coming soon")
 			default:
-				hintStr = dimStyle.Render("  ←/→ to change")
+				if cw >= 88 {
+					hintStr = dimStyle.Render("  ←/→ to change")
+				} else if cw >= 64 {
+					hintStr = dimStyle.Render("  ←/→")
+				}
 			}
 		}
 
-		line := fmt.Sprintf("%s  %-32s %s%s",
+		// Explicit space after ":" so label and value never abut (lipgloss Width
+		// on styled segments does not insert separators; Bugbot: "Default mode:sync-default").
+		line := fmt.Sprintf("%s  %s %s%s",
 			cursorStyle.Render(cur),
-			labelStyle.Render(row.label+":"),
+			labelStyle.Render(row.label+": "),
 			valueStyle.Render(val),
 			hintStr,
 		)
-		s.WriteString(line)
+		s.WriteString(clampCellWidth(line, cw))
 		s.WriteString("\n")
 	}
 
 	s.WriteString("\n")
 	if m.configSaveErr != nil {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6666"))
-		s.WriteString(errStyle.Render("⚠️  Save failed: " + m.configSaveErr.Error()))
+		s.WriteString(clampCellWidth(errStyle.Render("⚠️  Save failed: "+m.configSaveErr.Error()), cw))
 		s.WriteString("\n")
-		s.WriteString(helpStyle.Render(
-			"In-memory settings updated; fix the error above to persist to disk.\n" +
-				"Controls:  ↑/k, ↓/j  Navigate  |  space/→  Next value  |  ←  Prev value  |  c/Esc  Back  |  q  Quit",
-		))
+		helpText := "In-memory settings updated; fix the error above to persist to disk.\n" +
+			"Controls:  ↑/k, ↓/j  Navigate  |  space/→  Next value  |  ←  Prev value  |  c/Esc  Back  |  q  Quit"
+		s.WriteString(helpStyle.MaxWidth(cw).Render(helpText))
 	} else {
 		cfgPathStr := m.cfgPath
 		if cfgPathStr == "" {
@@ -313,13 +323,13 @@ func (m RepoSelectorModel) viewConfig() string {
 		} else {
 			cfgPathStr = AbbreviateUserHome(cfgPathStr)
 		}
-		s.WriteString(helpStyle.Render(
-			"Changes saved immediately to " + cfgPathStr + "\n" +
-				"Controls:  ↑/k, ↓/j  Navigate  |  space/→  Next value  |  ←  Prev value  |  c/Esc  Back  |  q  Quit",
-		))
+		helpText := "Changes saved immediately to " + cfgPathStr + "\n" +
+			"Controls:  ↑/k, ↓/j  Navigate  |  space/→  Next value  |  ←  Prev value  |  c/Esc  Back  |  q  Quit"
+		s.WriteString(helpStyle.MaxWidth(cw).Render(helpText))
 	}
 
-	return boxStyle.Render(s.String())
+	innerW := PanelBlockWidth(m.windowWidth)
+	return renderMainPanelBox(innerW, s.String())
 }
 
 func (m RepoSelectorModel) syncRuntimeFromConfig(cmds []tea.Cmd) (RepoSelectorModel, []tea.Cmd) {

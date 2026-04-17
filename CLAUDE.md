@@ -9,9 +9,7 @@ Operating modes, lightest to heaviest:
 1. **Default** — `git fetch --all` per repo. `--prune` is opt-in. Precedence per repo: CLI (`--prune` / `--no-prune`) → local `git config rain.fetchprune` → registry `fetch_prune` → global `fetch_prune`.
 2. **`--fetch-mainline`** — targeted fetches for mainline branches only (incompatible with `--sync` / full-sync triggers; CLI returns an error if combined).
 3. **`--sync` + `branch_mode`** — hydrate local branches from remotes.
-4. **`--risky`** — on the sync path only; allows hard reset to upstream after backup refs.
-
-Extracted from the `git-fire` codebase and promoted to a first-class tool.
+4. **`--risky`** — on the full branch-hydration path; allows hard reset to upstream after backup refs.
 
 Module: `github.com/git-rain/git-rain`
 Go version: 1.24.2
@@ -58,8 +56,8 @@ main.go
 **Key design decisions:**
 - Uses native `git` binary via `exec.Command` — not go-git.
 - Default run: `git fetch --all` with optional `--prune` (resolved per repo: CLI → `rain.fetchprune` → registry `fetch_prune` → `global.fetch_prune`) and optional `--tags`. Mainline-only: `internal/git.MainlineFetchRemotes` when `--fetch-mainline`. Local hydrate: `RainRepository` when `--sync`, non-mainline `branch_mode`, or risky-only config forces full sync.
-- Interactive picker: `--rain` (mirrors `git-fire --fire`).
-- Backup branch prefix: `git-rain-backup-` (was `git-fire-rain-backup-` in git-fire).
+- Interactive picker: `--rain` (streaming scan + Bubble Tea UI). Panel width math lives in `internal/ui/panel_layout.go` (`PanelBlockWidth` / `PanelTextWidth`); keep it aligned with `boxStyle` horizontal padding. On exit, `runRainTUIStream` cancels the scan context before draining channels so in-flight `git` from `ScanRepositoriesStream` can abort; OS SIGINT maps to the same cancel path as `q` via `tea.ErrInterrupted` → `ErrCancelled`.
+- Backup branch prefix: `git-rain-backup-`.
 - Config env prefix: `GIT_RAIN_`.
 - Safe mode (default): never rewrites local-only commits (applies to `--sync` path).
 - Risky mode (`--risky` / `config: global.risky_mode`): allows hard reset to upstream after creating a `git-rain-backup-*` ref (implies full sync).

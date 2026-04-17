@@ -53,7 +53,8 @@ Modes (from lightest fetch to full local updates):
      use --prune, config fetch_prune, registry fetch_prune, or git config rain.fetchprune.
 
   2. --fetch-mainline — targeted fetches for mainline branches only (faster when
-     you do not need every remote ref).
+     you do not need every remote ref). Cannot be combined with --sync, --risky,
+     non-mainline --branch-mode, or global risky_mode (full-sync triggers).
 
   3. --sync — hydrate local branches from remotes. Use --branch-mode for scope
      (mainline, checked-out, all-local, all-branches); all-branches can create
@@ -91,7 +92,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainFetchMainline, "fetch-mainline", false, "Fetch only mainline remote-tracking refs per remote (lighter than the default git fetch --all)")
 	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
 	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
-	rootCmd.Flags().BoolVar(&rainRain, "rain", false, "Interactive TUI repo picker before running (mirrors git-fire --fire)")
+	rootCmd.Flags().BoolVar(&rainRain, "rain", false, "Interactive TUI repo picker before running")
 	rootCmd.Flags().BoolVar(&rainSync, "sync", false, "Update local branches from remotes (default is git fetch --all only)")
 	rootCmd.Flags().StringVar(&rainBranchMode, "branch-mode", "", `Branch sync mode: mainline (default), checked-out, all-local, all-branches`)
 	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")
@@ -510,7 +511,8 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 	opts.FolderProgress = folderProgress
 
 	scanChan := make(chan git.Repository, opts.Workers)
-	tuiRepoChan := make(chan git.Repository, opts.Workers)
+	// Large buffer so the bridge rarely blocks on send if the TUI stops consuming.
+	tuiRepoChan := make(chan git.Repository, 256)
 
 	var scanErr error
 	scanDone := make(chan struct{})
@@ -521,7 +523,9 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 
 	now := time.Now()
 	defaultMode := git.ParseMode(cfg.Global.DefaultMode)
+	bridgeDone := make(chan struct{})
 	go func() {
+		defer close(bridgeDone)
 		defer close(tuiRepoChan)
 		for repo := range scanChan {
 			repo, include := upsertRepoIntoRegistry(reg, repo, now, defaultMode)
@@ -547,7 +551,10 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 		regPath,
 	)
 
-	// Drain channels before cancelling so goroutines can't block on sends.
+	// Cancel scan first so filepath walk and in-flight git subprocesses unwind.
+	cancelScan()
+
+	// Drain the TUI channel so the bridge never blocks on send while the scanner closes.
 	go func() {
 		for range tuiRepoChan {
 		}
@@ -556,8 +563,8 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 		for range folderProgress {
 		}
 	}()
-	cancelScan()
 	<-scanDone
+	<-bridgeDone
 
 	if err != nil {
 		if errors.Is(err, ui.ErrCancelled) {

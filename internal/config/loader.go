@@ -1,11 +1,14 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
@@ -96,24 +99,63 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.color_profile", defaults.UI.ColorProfile)
 }
 
+// Bounded lock acquisition for config.toml: SaveConfig runs from the TUI on
+// every settings keypress — a blocking flock.Lock() can freeze the UI if the
+// lock file is stale or another git-rain holds it. TryLockContext retries until
+// ctx expires; callers surface errors (e.g. TUI configSaveErr).
+const (
+	configFileLockTimeout = 2 * time.Second
+	configFileLockRetry   = 50 * time.Millisecond
+)
+
+func acquireConfigLock(lock *flock.Flock) error {
+	ctx, cancel := context.WithTimeout(context.Background(), configFileLockTimeout)
+	defer cancel()
+	locked, err := lock.TryLockContext(ctx, configFileLockRetry)
+	if err != nil {
+		return fmt.Errorf("config file lock: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("config file lock: timeout waiting for %s", lock.Path())
+	}
+	return nil
+}
+
+// writeAtomicReplacing writes data to path via a PID-scoped temp file and rename.
+// Removes the temp file if write or rename fails.
+func writeAtomicReplacing(path string, data []byte) error {
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // SaveConfig writes cfg to path as TOML. Intermediate directories are created
-// if needed. Existing file content is replaced atomically.
+// if needed. Uses an exclusive lock (path + ".lock") and a PID-scoped temp file
+// so concurrent writers or interrupted renames cannot corrupt the live config.
 func SaveConfig(cfg *Config, path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
+	lock := flock.New(path + ".lock")
+	if err := acquireConfigLock(lock); err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+
 	data, err := toml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("writing temp config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("replacing config file: %w", err)
+	if err := writeAtomicReplacing(path, data); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
 	}
 	return nil
 }
@@ -130,6 +172,16 @@ func LoadOrDefault() *Config {
 
 // Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
+	dm := strings.TrimSpace(c.Global.DefaultMode)
+	if dm == "" {
+		dm = DefaultConfig().Global.DefaultMode
+	}
+	switch dm {
+	case "leave-untouched", "sync-default", "sync-all", "sync-current-branch":
+		c.Global.DefaultMode = dm
+	default:
+		return fmt.Errorf("global.default_mode must be one of leave-untouched, sync-default, sync-all, sync-current-branch, got %q", c.Global.DefaultMode)
+	}
 	if c.Global.FetchWorkers <= 0 {
 		c.Global.FetchWorkers = DefaultFetchWorkers
 	}
@@ -193,13 +245,20 @@ func resolvedUserConfigDir() (string, string) {
 }
 
 // WriteExampleConfig writes an example config file to the specified path.
+// Same locking and atomic replace semantics as SaveConfig.
 func WriteExampleConfig(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
+	lock := flock.New(path + ".lock")
+	if err := acquireConfigLock(lock); err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+
 	content := ExampleConfigTOML()
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := writeAtomicReplacing(path, []byte(content)); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 	return nil

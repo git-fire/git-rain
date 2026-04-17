@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/git-rain/git-rain/internal/config"
@@ -109,6 +110,37 @@ func TestLoad_MissingExplicitConfigFile_Error(t *testing.T) {
 	}
 }
 
+func TestSaveConfig_ConcurrentWrites(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := config.DefaultConfig()
+			if i%2 == 0 {
+				c.Global.BranchMode = "mainline"
+			} else {
+				c.Global.BranchMode = "all-local"
+			}
+			if err := config.SaveConfig(&c, cfgPath); err != nil {
+				t.Errorf("SaveConfig %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	loaded, err := config.LoadWithOptions(config.LoadOptions{ConfigFile: cfgPath})
+	if err != nil {
+		t.Fatalf("Load after concurrent saves: %v", err)
+	}
+	if loaded.Global.BranchMode != "mainline" && loaded.Global.BranchMode != "all-local" {
+		t.Fatalf("unexpected branch mode %q", loaded.Global.BranchMode)
+	}
+}
+
 func TestSaveConfig_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
@@ -148,11 +180,30 @@ func TestValidate_ZeroFetchWorkers_Fixed(t *testing.T) {
 	}
 }
 
+func TestValidate_DefaultMode_EmptyBecomesDefault(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Global.DefaultMode = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if cfg.Global.DefaultMode != "sync-default" {
+		t.Fatalf("DefaultMode = %q, want sync-default", cfg.Global.DefaultMode)
+	}
+}
+
+func TestValidate_DefaultMode_Invalid(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Global.DefaultMode = "push-known-branches"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() should reject invalid default_mode")
+	}
+}
+
 func TestExampleConfigTOML_ContainsBranchMode(t *testing.T) {
 	toml := config.ExampleConfigTOML()
-	for _, want := range []string{"branch_mode", "sync_tags", "fetch_prune", "mainline_patterns"} {
+	for _, want := range []string{"branch_mode", "sync_tags", "fetch_prune", "mainline_patterns", `default_mode = "sync-default"`} {
 		if !contains(toml, want) {
-			t.Errorf("ExampleConfigTOML missing key %q", want)
+			t.Errorf("ExampleConfigTOML missing fragment %q", want)
 		}
 	}
 }
