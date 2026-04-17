@@ -9,13 +9,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/mattn/go-isatty"
@@ -652,9 +650,8 @@ func stdinInteractiveOK() bool {
 //
 // Workers (cfg.Global.FetchWorkers, clamped >=1) consume repos from a buffered
 // channel and write each repo's full output block atomically under a mutex so
-// lines from concurrent repos never interleave. After all per-repo work
-// finishes, an in-flight scan is either awaited (TTY: prompt the user) or
-// cancelled (non-interactive).
+// lines from concurrent repos never interleave. The folder-progress ticker
+// uses the same mutex so scan status lines cannot interleave with repo output.
 func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
 	fmt.Println("🌧️  Git Rain")
 	if fullSync {
@@ -679,6 +676,8 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 
 	scanChan := make(chan git.Repository, opts.Workers)
 	repoChan := make(chan git.Repository, opts.Workers)
+
+	var printMu sync.Mutex
 
 	var totalFound int64
 	var scanErr error
@@ -712,7 +711,10 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 					ptr := lastFolder.Load()
 					if ptr != nil && *ptr != "" {
 						maxPathLen := scanProgressPathMaxLen(scanPrefix)
-						fmt.Printf("%s%s\n", scanPrefix, truncateScanProgressPath(*ptr, maxPathLen))
+						line := fmt.Sprintf("%s%s\n", scanPrefix, truncateScanProgressPath(*ptr, maxPathLen))
+						printMu.Lock()
+						_, _ = io.WriteString(os.Stdout, line)
+						printMu.Unlock()
 					}
 				}
 			}
@@ -752,7 +754,6 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		skipped int64
 		frozen  int64
 		failed  int64
-		printMu sync.Mutex
 		seq     int64
 	)
 
@@ -788,42 +789,7 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 
 	workersWG.Wait()
 	<-upsertDone
-
-	// If the scan is still running after all repos finished, wait or cancel.
-	select {
-	case <-scanDone:
-	default:
-		if stdinInteractiveOK() {
-			printMu.Lock()
-			fmt.Println()
-			fmt.Println("✅ All repos done. Scan still running.")
-			fmt.Println("   Press Enter to wait for scan to finish, or Ctrl+C to stop scanning.")
-			printMu.Unlock()
-
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-			inputDone := make(chan struct{})
-			go func() {
-				defer close(inputDone)
-				r := bufio.NewReader(os.Stdin)
-				_, _ = r.ReadString('\n')
-			}()
-
-			select {
-			case <-sigCh:
-				fmt.Println("\nAborting scan...")
-				cancelScan()
-			case <-inputDone:
-			case <-scanDone:
-			}
-			signal.Stop(sigCh)
-		} else {
-			fmt.Println()
-			fmt.Println("✅ All repos done. Scan still running — stopping scan (non-interactive).")
-			cancelScan()
-		}
-		<-scanDone
-	}
+	<-scanDone
 
 	if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "warning: scan error: %s\n", safety.SanitizeText(scanErr.Error()))
