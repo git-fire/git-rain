@@ -956,10 +956,3 @@ func RunRepoSelectorStream(
 
 	return m.GetSelectedRepos(), nil
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

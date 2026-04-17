@@ -97,6 +97,21 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.color_profile", defaults.UI.ColorProfile)
 }
 
+// writeAtomicReplacing writes data to path via a PID-scoped temp file and rename.
+// Removes the temp file if write or rename fails.
+func writeAtomicReplacing(path string, data []byte) error {
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // SaveConfig writes cfg to path as TOML. Intermediate directories are created
 // if needed. Uses an exclusive lock (path + ".lock") and a PID-scoped temp file
 // so concurrent writers or interrupted renames cannot corrupt the live config.
@@ -115,13 +130,8 @@ func SaveConfig(cfg *Config, path string) error {
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("writing temp config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("replacing config file: %w", err)
+	if err := writeAtomicReplacing(path, data); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
 	}
 	return nil
 }
@@ -224,13 +234,8 @@ func WriteExampleConfig(path string) error {
 	defer func() { _ = lock.Unlock() }()
 
 	content := ExampleConfigTOML()
-	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
-		return fmt.Errorf("failed to write temp config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("failed to replace config file: %w", err)
+	if err := writeAtomicReplacing(path, []byte(content)); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
 	}
 	return nil
 }

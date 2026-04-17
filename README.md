@@ -241,7 +241,7 @@ git-rain --init
 | `--rain` | Interactive TUI repo picker before running |
 | `--sync` | Update local branches from remotes (after `git fetch --all`; default run does not sync locals) |
 | `--fetch-mainline` | Mainline-only remote `git fetch` per remote instead of default `git fetch --all` (not with `--sync` or other full-sync triggers) |
-| `--branch-mode` | With `--sync`: `mainline`, `checked-out`, `all-local`, or `all-branches` (overrides config for this run) |
+| `--branch-mode` | On the **full branch-hydration** path (same triggers as `--sync` — see table above): `mainline`, `checked-out`, `all-local`, or `all-branches` (overrides config `branch_mode` for this run) |
 | `--prune` | Pass `--prune` on fetch for this run (highest precedence; cannot combine with `--no-prune`) |
 | `--no-prune` | Never pass `--prune` on fetch for this run (overrides `--prune`, config, registry, and `rain.fetchprune`) |
 | `--tags` | Also pass `--tags` on fetch operations |

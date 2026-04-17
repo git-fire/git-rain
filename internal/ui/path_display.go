@@ -82,8 +82,9 @@ func PathWidthFor(terminalWidth int, repo git.Repository) int {
 		prefixW = w
 	}
 	suffixW := lipgloss.Width(fmt.Sprintf("›)  [%s] %s", repo.Mode.String(), remotesInfo))
-	const reserve = 34
-	pw := inner - prefixW - suffixW - reserve
+	// Space for cursor, brackets, separators, optional dirty icon + path scroll hint (ANSI width).
+	const pathRowReserveCells = 34
+	pw := inner - prefixW - suffixW - pathRowReserveCells
 	if pw < 8 {
 		pw = 8
 	}

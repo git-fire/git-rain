@@ -523,7 +523,9 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 
 	now := time.Now()
 	defaultMode := git.ParseMode(cfg.Global.DefaultMode)
+	bridgeDone := make(chan struct{})
 	go func() {
+		defer close(bridgeDone)
 		defer close(tuiRepoChan)
 		for repo := range scanChan {
 			repo, include := upsertRepoIntoRegistry(reg, repo, now, defaultMode)
@@ -562,6 +564,7 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 		}
 	}()
 	<-scanDone
+	<-bridgeDone
 
 	if err != nil {
 		if errors.Is(err, ui.ErrCancelled) {

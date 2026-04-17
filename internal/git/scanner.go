@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -163,8 +162,8 @@ func analyzeRepository(ctx context.Context, repoPath string) (Repository, error)
 	remotes, err := getRemotes(ctx, repoPath)
 	if err == nil {
 		repo.Remotes = remotes
-	} else if errors.Is(err, context.Canceled) {
-		return Repository{}, err
+	} else if ctx.Err() != nil {
+		return Repository{}, ctx.Err()
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -174,8 +173,8 @@ func analyzeRepository(ctx context.Context, repoPath string) (Repository, error)
 	dirty, err := isDirty(ctx, repoPath)
 	if err == nil {
 		repo.IsDirty = dirty
-	} else if errors.Is(err, context.Canceled) {
-		return Repository{}, err
+	} else if ctx.Err() != nil {
+		return Repository{}, ctx.Err()
 	}
 
 	return repo, nil
