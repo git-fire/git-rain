@@ -587,47 +587,15 @@ func renderIgnoredViewHelp(cw int) string {
 }
 
 // repoListVisibleCount returns how many repo rows can fit in the viewport.
+// Uses measured lipgloss height (wrapped help, bordered scan panel) so the
+// bordered panel never exceeds window height — avoids the top border cropping
+// when many repos are listed in a short terminal.
 func (m RepoSelectorModel) repoListVisibleCount() int {
-	// Box overhead: 2 border + 2 padding top + 2 padding bottom = 6
-	// Rain area: 7 rows (bg 5 + wave 1 + blank 1) when visible
-	// Title: 1
-	// Blank after title: 1
-	// Quote: 1 (when visible)
-	// Blank after quote: 1 (when visible)
-	// Scan panel: ~3 rows
-	// Help: ~5 rows
-	// Scroll indicators: up to 2
-	overhead := 6 + 1 + 1 // box + title + blank
-	if m.rainVisible() {
-		overhead += 7
-	}
-	if m.quoteVisible() {
-		overhead += 2
-	}
-	if m.scanChan != nil || m.scanDisabled {
-		overhead += 3
-	}
-	overhead += 5 // help text
-	visible := m.windowHeight - overhead
-	if visible < 1 {
-		visible = 1
-	}
-	return visible
+	return m.mainViewMeasuredRepoListCapacity()
 }
 
 func (m RepoSelectorModel) ignoredListVisibleCount() int {
-	overhead := 6 + 1 + 1 + 3
-	if m.rainVisible() {
-		overhead += 7
-	}
-	if m.quoteVisible() {
-		overhead += 2
-	}
-	visible := m.windowHeight - overhead
-	if visible < 1 {
-		visible = 1
-	}
-	return visible
+	return m.ignoredMeasuredListCapacity()
 }
 
 // advancePathScroll advances the path scroll for the currently focused row.
@@ -842,165 +810,11 @@ func (m RepoSelectorModel) View() string {
 		return m.viewConfig()
 	}
 
-	cw := m.contentWidth()
-	rainW := RainDisplayWidth(m.windowWidth)
-
-	var s strings.Builder
-
-	if m.rainVisible() {
-		s.WriteString(m.rainBg.Render())
-		s.WriteString("\n")
-		s.WriteString(RenderRainWave(rainW, m.frameIndex, m.rainAnimationMode))
-		s.WriteString("\n\n")
-	}
-
-	titleGradient := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(activeProfile().titleFg).
-		Background(activeProfile().titleBg).
-		Padding(0, 2)
-	title := "🌧️  GIT RAIN — SELECT REPOSITORIES  🌧️"
-	if cw <= 0 {
-		s.WriteString(titleGradient.Render(title))
-	} else {
-		s.WriteString(titleGradient.MaxWidth(cw).Render(title))
-	}
-	s.WriteString("\n\n")
-
-	if m.quoteVisible() {
-		s.WriteString(m.renderStartupQuote())
-		s.WriteString("\n\n")
-	}
-
-	if len(m.repos) == 0 && !m.scanDone {
-		s.WriteString(clampCellWidth(unselectedStyle.Render("  Waiting for repositories..."), cw))
-		s.WriteString("\n")
-	}
-
 	visible := m.repoListVisibleCount()
-	scrollOffset := m.clampScroll(m.scrollOffset, m.cursor, visible, len(m.repos))
-
-	hasAbove := scrollOffset > 0
-	hasBelow := len(m.repos) > scrollOffset+visible
-	indicators := 0
-	if hasAbove {
-		indicators++
-	}
-	if hasBelow {
-		indicators++
-	}
-	itemVisible := visible - indicators
-	hadHiddenRows := hasAbove || hasBelow
-	indicatorsSuppressed := false
-	viewportWarning := "  ⚠ More repos exist, but ↑/↓ indicators are hidden in this terminal size (enlarge window or press r)."
-	warningRows := viewportWarningRows(cw, viewportWarning)
-	if itemVisible < 1 {
-		hasAbove = false
-		hasBelow = false
-		itemVisible = visible
-		if hadHiddenRows && visible-warningRows >= 1 {
-			indicatorsSuppressed = true
-			itemVisible = visible - warningRows
-		}
-		if itemVisible < 1 {
-			itemVisible = 1
-		}
-	}
-	end := scrollOffset + itemVisible
-	if end > len(m.repos) {
-		end = len(m.repos)
-	}
-
-	if hasAbove {
-		s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↑ %d more", scrollOffset)), cw))
-		s.WriteString("\n")
-	}
-
-	for i := scrollOffset; i < end; i++ {
-		repo := m.repos[i]
-		cur := " "
-		if m.cursor == i {
-			cur = ">"
-		}
-
-		checked := "[ ]"
-		style := unselectedStyle
-		if m.selected[i] {
-			checked = "[✓]"
-			style = selectedStyle
-		}
-
-		dirtyIndicator := ""
-		if repo.IsDirty {
-			dirtyIndicator = " 💧"
-		}
-
-		remotesInfo := fmt.Sprintf("(%d remotes)", len(repo.Remotes))
-		if len(repo.Remotes) == 0 {
-			remotesInfo = "(no remotes!)"
-		}
-
-		parentPath := AbbreviateUserHome(filepath.Dir(repo.Path))
-		pWidth := PathWidthFor(m.windowWidth, repo)
-		scrollOff := 0
-		if m.cursor == i {
-			scrollOff = m.pathScrollOffset
-		}
-		visPath, hasLeft, hasRight := TruncatePath(parentPath, pWidth, scrollOff)
-		leftInd, rightInd := " ", " "
-		if hasLeft {
-			leftInd = "‹"
-		}
-		if hasRight {
-			rightInd = "›"
-		}
-
-		scrollHint := ""
-		if m.cursor == i && (hasLeft || hasRight) {
-			scrollHint = "  " + scrollHintStyle.Render("<< SCROLL PATH >>")
-		}
-
-		line := fmt.Sprintf("%s %s %s (%s%s%s)  [%s] %s%s%s",
-			cur, checked,
-			style.Render(repo.Name),
-			leftInd, visPath, rightInd,
-			repo.Mode.String(),
-			remotesInfo,
-			dirtyIndicator,
-			scrollHint,
-		)
-		s.WriteString(clampCellWidth(line, cw))
-		s.WriteString("\n")
-	}
-
-	if hasBelow {
-		below := len(m.repos) - end
-		s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↓ %d more", below)), cw))
-		s.WriteString("\n")
-	}
-	if indicatorsSuppressed {
-		s.WriteString(clampCellWidth(viewportWarningStyle.Render(viewportWarning), cw))
-		s.WriteString("\n")
-	}
-
-	configHint := ""
-	if m.cfg != nil {
-		configHint = "  c  Settings  |  "
-	}
-	helpText := "\n" +
-		"Controls:\n" +
-		"  ↑/k, ↓/j  Navigate  |  ←/→  Scroll path  |  space  Toggle selection\n" +
-		"  m  Change mode  |  x  Ignore  |  a  Select all  |  n  Select none  |  r  Toggle rain\n" +
-		"  i  View ignored  |  " + configHint + "enter  Confirm  |  q  Quit\n\n" +
-		"Icons:\n" +
-		"  💧 = Has uncommitted changes\n" +
-		"  [✓] = Selected  |  [ ] = Not selected  |  ‹›  = path scrollable"
-	s.WriteString(helpStyle.MaxWidth(cw).Render(helpText))
-
-	if m.scanChan != nil || m.scanDisabled {
-		s.WriteString("\n")
-		s.WriteString(m.renderScanStatus())
-	}
+	var s strings.Builder
+	s.WriteString(m.mainViewHeaderBlock())
+	s.WriteString(m.mainViewRepoListBlock(visible))
+	s.WriteString(m.mainViewFooterBlock())
 
 	innerW := PanelBlockWidth(m.windowWidth)
 	return renderMainPanelBox(innerW, s.String())
@@ -1058,102 +872,11 @@ func (m RepoSelectorModel) renderScanStatus() string {
 }
 
 func (m RepoSelectorModel) viewIgnoredMain() string {
-	cw := m.contentWidth()
-	rainW := RainDisplayWidth(m.windowWidth)
-
+	visible := m.ignoredListVisibleCount()
 	var s strings.Builder
-	if m.rainVisible() {
-		s.WriteString(m.rainBg.Render())
-		s.WriteString("\n")
-		s.WriteString(RenderRainWave(rainW, m.frameIndex, m.rainAnimationMode))
-		s.WriteString("\n\n")
-	}
-
-	s.WriteString(m.renderIgnoredViewTitle())
-	s.WriteString("\n\n")
-	if m.quoteVisible() {
-		s.WriteString(m.renderStartupQuote())
-		s.WriteString("\n\n")
-	}
-
-	if len(m.ignoredEntries) == 0 {
-		s.WriteString(clampCellWidth(unselectedStyle.Render("No ignored repositories."), cw))
-		s.WriteString("\n")
-	} else {
-		visible := m.ignoredListVisibleCount()
-		scrollOffset := m.clampScroll(m.ignoredScrollOffset, m.ignoredCursor, visible, len(m.ignoredEntries))
-
-		hasAbove := scrollOffset > 0
-		hasBelow := len(m.ignoredEntries) > scrollOffset+visible
-		indicators := 0
-		if hasAbove {
-			indicators++
-		}
-		if hasBelow {
-			indicators++
-		}
-
-		maxPathCols := cw - 4
-		if maxPathCols < 0 {
-			maxPathCols = 0
-		}
-
-		itemVisible := visible - indicators
-		hadHiddenRows := hasAbove || hasBelow
-		indicatorsSuppressed := false
-		viewportWarning := "  ⚠ More ignored repos exist, but ↑/↓ indicators are hidden in this terminal size."
-		warningRows := viewportWarningRows(cw, viewportWarning)
-		if itemVisible < 1 {
-			hasAbove = false
-			hasBelow = false
-			itemVisible = visible
-			if hadHiddenRows && visible-warningRows >= 1 {
-				indicatorsSuppressed = true
-				itemVisible = visible - warningRows
-			}
-			if itemVisible < 1 {
-				itemVisible = 1
-			}
-		}
-		end := scrollOffset + itemVisible
-		if end > len(m.ignoredEntries) {
-			end = len(m.ignoredEntries)
-		}
-
-		if hasAbove {
-			s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↑ %d more", scrollOffset)), cw))
-			s.WriteString("\n")
-		}
-
-		for i := scrollOffset; i < end; i++ {
-			e := m.ignoredEntries[i]
-			cur := " "
-			if m.ignoredCursor == i {
-				cur = ">"
-			}
-			displayPath := AbbreviateUserHome(e.Path)
-			if maxPathCols == 0 {
-				displayPath = ""
-			} else if len([]rune(displayPath)) > maxPathCols {
-				displayPath = string([]rune(displayPath)[:maxPathCols-1]) + "…"
-			}
-			line := fmt.Sprintf("%s %s", cur, displayPath)
-			s.WriteString(clampCellWidth(line, cw))
-			s.WriteString("\n")
-		}
-
-		if hasBelow {
-			below := len(m.ignoredEntries) - end
-			s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↓ %d more", below)), cw))
-			s.WriteString("\n")
-		}
-		if indicatorsSuppressed {
-			s.WriteString(clampCellWidth(viewportWarningStyle.Render(viewportWarning), cw))
-			s.WriteString("\n")
-		}
-	}
-
-	s.WriteString(renderIgnoredViewHelp(cw))
+	s.WriteString(m.ignoredViewHeaderBlock())
+	s.WriteString(m.ignoredViewListBlock(visible))
+	s.WriteString(m.ignoredViewFooterBlock())
 
 	innerW := PanelBlockWidth(m.windowWidth)
 	return renderMainPanelBox(innerW, s.String())
