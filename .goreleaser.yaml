@@ -96,6 +96,11 @@ release:
     go install github.com/git-rain/git-rain@{{ .Tag }}
     ```
 
+    **curl (Linux / macOS)**
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/{{ .Tag }}/scripts/install.sh | VERSION={{ .Tag }} bash
+    ```
+
     **Binaries**
     Download platform archives from this release's assets.
     Package-manager channels are published for stable tags (`vX.Y.Z`).

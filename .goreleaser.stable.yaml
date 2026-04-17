@@ -132,6 +132,11 @@ release:
     go install github.com/git-rain/git-rain@{{ .Tag }}
     ```
 
+    **curl (Linux / macOS)**
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/git-fire/git-rain/{{ .Tag }}/scripts/install.sh | VERSION={{ .Tag }} bash
+    ```
+
     **Homebrew (macOS/Linuxbrew)**
     ```sh
     brew install git-fire/tap/git-rain
