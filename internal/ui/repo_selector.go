@@ -713,8 +713,10 @@ func resolveRainBackgroundWidth(terminalWidth int) int {
 }
 
 // clampCellWidth keeps one screen row within maxCells using lipgloss truncation.
+// Degeneracy: maxCells < 1 means "no usable width" — return s unchanged; empty s
+// is also a no-op. For maxCells == 1, truncation still runs (single visible cell).
 func clampCellWidth(s string, maxCells int) string {
-	if maxCells <= 1 || s == "" {
+	if maxCells < 1 || s == "" {
 		return s
 	}
 	return lipgloss.NewStyle().MaxWidth(maxCells).Inline(true).Render(s)
