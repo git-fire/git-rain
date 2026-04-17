@@ -822,10 +822,21 @@ func (m RepoSelectorModel) View() string {
 
 func (m RepoSelectorModel) renderScanStatus() string {
 	cw := m.contentWidth()
+	if cw < 1 {
+		cw = 1
+	}
 	scanStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(activeProfile().scanBorder).
 		Padding(0, 1)
+
+	// Full-width, left-aligned row inside the main panel. Do not use clampCellWidth
+	// here — it uses Inline(true) and flattens multiline bordered blocks, which
+	// breaks the scan box and leaves the label floating toward the center.
+	scanRow := func(inner string) string {
+		box := scanStyle.Render(inner)
+		return lipgloss.NewStyle().Width(cw).Align(lipgloss.Left).Render(box)
+	}
 
 	switch {
 	case m.scanDisabled:
@@ -835,7 +846,7 @@ func (m RepoSelectorModel) renderScanStatus() string {
 		} else {
 			label = "⚠️  Scanning Disabled"
 		}
-		return clampCellWidth(scanStyle.Render(lipgloss.NewStyle().Foreground(activeProfile().scanWarn).Render(label)), cw)
+		return scanRow(lipgloss.NewStyle().Foreground(activeProfile().scanWarn).Render(label))
 
 	case m.scanDone:
 		total := m.scanNewRegistryCount + m.scanKnownRegistryCount
@@ -846,7 +857,7 @@ func (m RepoSelectorModel) renderScanStatus() string {
 			msg = fmt.Sprintf("✅ Scan Complete  (%d in list: %d new to registry, %d known)",
 				total, m.scanNewRegistryCount, m.scanKnownRegistryCount)
 		}
-		return clampCellWidth(scanStyle.Render(lipgloss.NewStyle().Foreground(activeProfile().scanDone).Render(msg)), cw)
+		return scanRow(lipgloss.NewStyle().Foreground(activeProfile().scanDone).Render(msg))
 
 	default:
 		folder := m.scanCurrentPath
@@ -867,7 +878,7 @@ func (m RepoSelectorModel) renderScanStatus() string {
 		total := m.scanNewRegistryCount + m.scanKnownRegistryCount
 		line2 := fmt.Sprintf("   In list: %d  (%d new to registry, %d known)",
 			total, m.scanNewRegistryCount, m.scanKnownRegistryCount)
-		return clampCellWidth(scanStyle.Render(line1+"\n"+line2), cw)
+		return scanRow(line1 + "\n" + line2)
 	}
 }
 
