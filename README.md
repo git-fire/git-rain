@@ -194,7 +194,7 @@ Requires Go 1.24.2+.
 - **Safety-first defaults** — never rewrites local-only commits; dirty worktrees are skipped, not clobbered
 - **Risky mode** — opt-in destructive realignment: creates a `git-rain-backup-*` ref, then hard-resets to upstream
 - **Non-checked-out branches** — updated directly without touching the worktree
-- **Interactive TUI (`--rain`)** — streaming repo picker (mirrors `git-fire --fire`), then the same default fetch, `--fetch-mainline`, or `--sync` behavior
+- **Interactive TUI (`--rain`)** — streaming repo picker, then the same default fetch, `--fetch-mainline`, or `--sync` behavior
 - **Registry** — discovered repos persist across runs; mark repos ignored to skip them permanently
 - **Dry run** — preview all repos that would be fetched or synced without making any changes
 - **`--fetch-mainline`** — mainline-only remote-tracking ref refresh instead of the default full `git fetch --all`
@@ -238,7 +238,7 @@ git-rain --init
 | Flag | Description |
 |---|---|
 | `--dry-run` | No `git fetch` / branch updates — still scans disk to list repos. The name is weather-themed irony: no “wet” git work, but not a no-op. |
-| `--rain` | Interactive TUI repo picker before running (like `git-fire --fire`) |
+| `--rain` | Interactive TUI repo picker before running |
 | `--sync` | Update local branches from remotes (after `git fetch --all`; default run does not sync locals) |
 | `--fetch-mainline` | Mainline-only remote `git fetch` per remote instead of default `git fetch --all` (not with `--sync` or other full-sync triggers) |
 | `--branch-mode` | With `--sync`: `mainline`, `checked-out`, `all-local`, or `all-branches` (overrides config for this run) |
@@ -287,6 +287,8 @@ scan_exclude = [
 ]
 ```
 
+`global.default_mode` must be exactly one of the four values listed above; anything else fails config load.
+
 All options can be overridden with environment variables using the `GIT_RAIN_` prefix:
 
 ```bash
@@ -298,7 +300,7 @@ GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
 
 **Registry (`repos.toml`)** — Writes use a cross-process lock file (`repos.toml.lock`), atomic replace, and stale-lock detection (owner PID). If a process dies mid-run you may still see a leftover lock: the CLI prompts to remove it when safe, or you can use **`--force-unlock-registry`** in scripts. This is the same class of “stale lock / don’t corrupt the database” problem as other multi-repo tools; treat lock removal like any other forced unlock — only when you are sure no other `git-rain` is running.
 
-**User config (`config.toml`)** — There is **no** cross-process lock on the config file today. The TUI saves settings with an atomic write (temp file then rename into place), so an ungraceful exit mid-save should not replace `config.toml` with a half-written file; you might leave an orphan `config.toml.tmp`, which is safe to delete if present. Avoid hand-editing `config.toml` at the same moment an interactive `--rain` session is saving, or two editors racing writes — same practical risk as `git-fire` until/unless a shared lock is added for config.
+**User config (`config.toml`)** — There is **no** cross-process lock on the config file today. The TUI saves settings with an atomic write (temp file then rename into place), so an ungraceful exit mid-save should not replace `config.toml` with a half-written file; you might leave an orphan `config.toml.tmp`, which is safe to delete if present. Avoid hand-editing `config.toml` at the same moment an interactive `--rain` session is saving, or two editors racing writes — a future shared lock could remove that race.
 
 ## Interactive TUI
 

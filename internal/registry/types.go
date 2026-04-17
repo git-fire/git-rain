@@ -21,7 +21,7 @@ type RegistryEntry struct {
 	// Status: "active", "missing", or "ignored"
 	Status string `toml:"status"`
 
-	// Last-used mode (e.g. "push-known-branches")
+	// Last-used per-repo disposition: leave-untouched | sync-default | sync-all | sync-current-branch
 	Mode string `toml:"mode,omitempty"`
 
 	// Per-repo override for submodule re-scanning.

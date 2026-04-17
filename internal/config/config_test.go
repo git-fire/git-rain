@@ -148,11 +148,30 @@ func TestValidate_ZeroFetchWorkers_Fixed(t *testing.T) {
 	}
 }
 
+func TestValidate_DefaultMode_EmptyBecomesDefault(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Global.DefaultMode = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if cfg.Global.DefaultMode != "sync-default" {
+		t.Fatalf("DefaultMode = %q, want sync-default", cfg.Global.DefaultMode)
+	}
+}
+
+func TestValidate_DefaultMode_Invalid(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Global.DefaultMode = "push-known-branches"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() should reject invalid default_mode")
+	}
+}
+
 func TestExampleConfigTOML_ContainsBranchMode(t *testing.T) {
 	toml := config.ExampleConfigTOML()
-	for _, want := range []string{"branch_mode", "sync_tags", "fetch_prune", "mainline_patterns"} {
+	for _, want := range []string{"branch_mode", "sync_tags", "fetch_prune", "mainline_patterns", `default_mode = "sync-default"`} {
 		if !contains(toml, want) {
-			t.Errorf("ExampleConfigTOML missing key %q", want)
+			t.Errorf("ExampleConfigTOML missing fragment %q", want)
 		}
 	}
 }

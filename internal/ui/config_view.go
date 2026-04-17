@@ -27,10 +27,10 @@ const (
 
 var configRows = []configRow{
 	{label: "Default mode", kind: configRowEnum, options: []string{
-		"push-known-branches",
-		"push-all",
+		"sync-default",
+		"sync-all",
+		"sync-current-branch",
 		"leave-untouched",
-		"push-current-branch",
 	}},
 	{label: "Disable scan", kind: configRowBool},
 	{label: "Fetch workers", kind: configRowEnum, options: []string{

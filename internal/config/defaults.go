@@ -77,7 +77,7 @@ scan_workers = 8
 fetch_workers = 4
 
 # Default mode for repos (used by registry opt-out model)
-default_mode = "push-known-branches"
+default_mode = "sync-default"
 
 # Re-scan known repos for new submodules
 rescan_submodules = false

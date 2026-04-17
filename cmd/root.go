@@ -91,7 +91,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainFetchMainline, "fetch-mainline", false, "Fetch only mainline remote-tracking refs per remote (lighter than the default git fetch --all)")
 	rootCmd.Flags().BoolVar(&rainInit, "init", false, "Generate example ~/.config/git-rain/config.toml")
 	rootCmd.Flags().StringVar(&rainConfigFile, "config", "", "Use an explicit config file path")
-	rootCmd.Flags().BoolVar(&rainRain, "rain", false, "Interactive TUI repo picker before running (mirrors git-fire --fire)")
+	rootCmd.Flags().BoolVar(&rainRain, "rain", false, "Interactive TUI repo picker before running")
 	rootCmd.Flags().BoolVar(&rainSync, "sync", false, "Update local branches from remotes (default is git fetch --all only)")
 	rootCmd.Flags().StringVar(&rainBranchMode, "branch-mode", "", `Branch sync mode: mainline (default), checked-out, all-local, all-branches`)
 	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")

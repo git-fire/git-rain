@@ -130,6 +130,16 @@ func LoadOrDefault() *Config {
 
 // Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
+	dm := strings.TrimSpace(c.Global.DefaultMode)
+	if dm == "" {
+		dm = DefaultConfig().Global.DefaultMode
+	}
+	switch dm {
+	case "leave-untouched", "sync-default", "sync-all", "sync-current-branch":
+		c.Global.DefaultMode = dm
+	default:
+		return fmt.Errorf("global.default_mode must be one of leave-untouched, sync-default, sync-all, sync-current-branch, got %q", c.Global.DefaultMode)
+	}
 	if c.Global.FetchWorkers <= 0 {
 		c.Global.FetchWorkers = DefaultFetchWorkers
 	}
