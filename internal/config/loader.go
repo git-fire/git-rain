@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gofrs/flock"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
@@ -97,17 +98,24 @@ func setDefaults(v *viper.Viper) {
 }
 
 // SaveConfig writes cfg to path as TOML. Intermediate directories are created
-// if needed. Existing file content is replaced atomically.
+// if needed. Uses an exclusive lock (path + ".lock") and a PID-scoped temp file
+// so concurrent writers or interrupted renames cannot corrupt the live config.
 func SaveConfig(cfg *Config, path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
+	lock := flock.New(path + ".lock")
+	if err := lock.Lock(); err != nil {
+		return fmt.Errorf("config file lock: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
 	data, err := toml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
 	}
-	tmp := path + ".tmp"
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("writing temp config: %w", err)
 	}
@@ -193,14 +201,26 @@ func resolvedUserConfigDir() (string, string) {
 }
 
 // WriteExampleConfig writes an example config file to the specified path.
+// Same locking and atomic replace semantics as SaveConfig.
 func WriteExampleConfig(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
+	lock := flock.New(path + ".lock")
+	if err := lock.Lock(); err != nil {
+		return fmt.Errorf("config file lock: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
 	content := ExampleConfigTOML()
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("failed to write temp config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("failed to replace config file: %w", err)
 	}
 	return nil
 }
