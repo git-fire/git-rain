@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/git-rain/git-rain/internal/config"
@@ -106,6 +107,37 @@ func TestLoad_MissingExplicitConfigFile_Error(t *testing.T) {
 	_, err := config.LoadWithOptions(config.LoadOptions{ConfigFile: "/nonexistent/path/config.toml"})
 	if err == nil {
 		t.Fatal("expected error for missing explicit config file, got nil")
+	}
+}
+
+func TestSaveConfig_ConcurrentWrites(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := config.DefaultConfig()
+			if i%2 == 0 {
+				c.Global.BranchMode = "mainline"
+			} else {
+				c.Global.BranchMode = "all-local"
+			}
+			if err := config.SaveConfig(&c, cfgPath); err != nil {
+				t.Errorf("SaveConfig %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	loaded, err := config.LoadWithOptions(config.LoadOptions{ConfigFile: cfgPath})
+	if err != nil {
+		t.Fatalf("Load after concurrent saves: %v", err)
+	}
+	if loaded.Global.BranchMode != "mainline" && loaded.Global.BranchMode != "all-local" {
+		t.Fatalf("unexpected branch mode %q", loaded.Global.BranchMode)
 	}
 }
 
