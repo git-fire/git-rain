@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/git-rain/git-rain/internal/git"
 )
 
@@ -60,18 +61,31 @@ func TruncatePath(path string, maxWidth, offset int) (visible string, hasLeft, h
 	return string(runes[offset : offset+maxWidth]), offset > 0, offset+maxWidth < total
 }
 
-// PathWidthFor returns the number of rune columns available for the scrollable path
-// portion inside a repo list row, given the current terminal width and the repo's
-// other fixed-width fields.
-func PathWidthFor(windowWidth int, repo git.Repository) int {
+// PathWidthFor returns the number of terminal cells available for the scrollable
+// path segment in a repo list row. Uses PanelTextWidth and lipgloss cell widths
+// so the composed line fits inside the padded panel.
+func PathWidthFor(terminalWidth int, repo git.Repository) int {
+	inner := PanelTextWidth(terminalWidth)
+	if inner < 16 {
+		if inner < 10 {
+			return 4
+		}
+		return inner / 3
+	}
 	remotesInfo := fmt.Sprintf("(%d remotes)", len(repo.Remotes))
 	if len(repo.Remotes) == 0 {
 		remotesInfo = "(no remotes!)"
 	}
-	overhead := 26 + len([]rune(repo.Name)) + len([]rune(repo.Mode.String())) + len([]rune(remotesInfo))
-	w := windowWidth - overhead
-	if w < 8 {
-		w = 8
+	// Row layout: "> [✓] name (‹PATH›)  [mode] remotes 💧 …scroll-hint"
+	prefixW := lipgloss.Width(fmt.Sprintf("> [✓] %s (‹", repo.Name))
+	if w := lipgloss.Width(fmt.Sprintf("> [ ] %s (‹", repo.Name)); w > prefixW {
+		prefixW = w
 	}
-	return w
+	suffixW := lipgloss.Width(fmt.Sprintf("›)  [%s] %s", repo.Mode.String(), remotesInfo))
+	const reserve = 34
+	pw := inner - prefixW - suffixW - reserve
+	if pw < 8 {
+		pw = 8
+	}
+	return pw
 }

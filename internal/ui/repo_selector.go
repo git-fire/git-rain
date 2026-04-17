@@ -146,19 +146,19 @@ type RepoSelectorModel struct {
 	pathScrollDir    int
 	pathScrollPause  int
 
-	scanChan            <-chan git.Repository
-	progressChan        <-chan string
-	scanDone            bool
-	progDone            bool
-	scanDisabled        bool
-	scanDisabledRunOnly bool
-	scanCurrentPath     string
+	scanChan               <-chan git.Repository
+	progressChan           <-chan string
+	scanDone               bool
+	progDone               bool
+	scanDisabled           bool
+	scanDisabledRunOnly    bool
+	scanCurrentPath        string
 	scanNewRegistryCount   int
 	scanKnownRegistryCount int
 
-	showRain             bool
-	rainTick             time.Duration
-	rainAnimationMode    string
+	showRain          bool
+	rainTick          time.Duration
+	rainAnimationMode string
 
 	showStartupQuote     bool
 	startupQuoteBehavior string
@@ -186,7 +186,7 @@ func NewRepoSelectorModel(repos []git.Repository, reg *registry.Registry, regPat
 	s.Style = lipgloss.NewStyle().Foreground(activeProfile().boxBorder)
 
 	animMode := config.UIRainAnimationBasic
-	rainBg := NewRainBackground(70, 5, animMode)
+	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
 
 	return RepoSelectorModel{
 		repos:                repos,
@@ -255,7 +255,7 @@ func NewRepoSelectorModelStream(
 		}
 	}
 
-	rainBg := NewRainBackground(70, 5, animMode)
+	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
 
 	return RepoSelectorModel{
 		repos:                nil,
@@ -335,7 +335,7 @@ func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.windowWidth = msg.Width
 		m.windowHeight = msg.Height
-		bgW := min(msg.Width-4, 70)
+		bgW := resolveRainBackgroundWidth(msg.Width)
 		m.rainBg = NewRainBackground(bgW, 5, m.rainAnimationMode)
 		m = m.withClampedPathScroll()
 		m.scrollOffset = m.clampScroll(m.scrollOffset, m.cursor, m.repoListVisibleCount(), len(m.repos))
@@ -379,6 +379,10 @@ func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
+
+	case tea.InterruptMsg:
+		m.quitting = true
+		return m, tea.Quit
 
 	case tea.KeyMsg:
 		if m.view == repoViewConfig {
@@ -551,7 +555,12 @@ func (m RepoSelectorModel) renderStartupQuote() string {
 	quoteStyle := lipgloss.NewStyle().
 		Foreground(activeProfile().scrollHint).
 		Italic(true)
-	return quoteStyle.Render("  ☁ " + m.currentStartupQuote)
+	cw := m.contentWidth()
+	line := "  ☁ " + m.currentStartupQuote
+	if cw <= 0 {
+		return quoteStyle.Render(line)
+	}
+	return quoteStyle.MaxWidth(cw).Render(line)
 }
 
 func (m RepoSelectorModel) renderIgnoredViewTitle() string {
@@ -560,14 +569,21 @@ func (m RepoSelectorModel) renderIgnoredViewTitle() string {
 		Foreground(activeProfile().titleFg).
 		Background(activeProfile().titleBg).
 		Padding(0, 2)
-	return titleGradient.Render("🌧️  GIT RAIN — IGNORED REPOSITORIES")
+	cw := m.contentWidth()
+	title := "🌧️  GIT RAIN — IGNORED REPOSITORIES"
+	if cw <= 0 {
+		return titleGradient.Render(title)
+	}
+	return titleGradient.MaxWidth(cw).Render(title)
 }
 
-func renderIgnoredViewHelp() string {
-	return helpStyle.Render(
-		"\nControls:\n" +
-			"  ↑/k, ↓/j  Navigate  |  u  Restore (un-ignore)  |  b/i/Esc  Back  |  q  Quit",
-	)
+func renderIgnoredViewHelp(cw int) string {
+	text := "\nControls:\n" +
+		"  ↑/k, ↓/j  Navigate  |  u  Restore (un-ignore)  |  b/i/Esc  Back  |  q  Quit"
+	if cw <= 0 {
+		return helpStyle.Render(text)
+	}
+	return helpStyle.MaxWidth(cw).Render(text)
 }
 
 // repoListVisibleCount returns how many repo rows can fit in the viewport.
@@ -717,11 +733,23 @@ func (m RepoSelectorModel) clampScroll(offset, cursor, visible, total int) int {
 }
 
 func (m RepoSelectorModel) contentWidth() int {
-	w := m.windowWidth - 6
-	if w < 0 {
-		w = 0
+	return PanelTextWidth(m.windowWidth)
+}
+
+func resolveRainBackgroundWidth(terminalWidth int) int {
+	w := RainDisplayWidth(terminalWidth)
+	if w < 1 {
+		w = 1
 	}
 	return w
+}
+
+// clampCellWidth keeps one screen row within maxCells using lipgloss truncation.
+func clampCellWidth(s string, maxCells int) string {
+	if maxCells <= 1 || s == "" {
+		return s
+	}
+	return lipgloss.NewStyle().MaxWidth(maxCells).Inline(true).Render(s)
 }
 
 func viewportWarningRows(contentWidth int, warning string) int {
@@ -815,7 +843,7 @@ func (m RepoSelectorModel) View() string {
 	}
 
 	cw := m.contentWidth()
-	rainW := min(cw, 70)
+	rainW := RainDisplayWidth(m.windowWidth)
 
 	var s strings.Builder
 
@@ -831,7 +859,12 @@ func (m RepoSelectorModel) View() string {
 		Foreground(activeProfile().titleFg).
 		Background(activeProfile().titleBg).
 		Padding(0, 2)
-	s.WriteString(titleGradient.Render("🌧️  GIT RAIN — SELECT REPOSITORIES  🌧️"))
+	title := "🌧️  GIT RAIN — SELECT REPOSITORIES  🌧️"
+	if cw <= 0 {
+		s.WriteString(titleGradient.Render(title))
+	} else {
+		s.WriteString(titleGradient.MaxWidth(cw).Render(title))
+	}
 	s.WriteString("\n\n")
 
 	if m.quoteVisible() {
@@ -840,7 +873,7 @@ func (m RepoSelectorModel) View() string {
 	}
 
 	if len(m.repos) == 0 && !m.scanDone {
-		s.WriteString(unselectedStyle.Render("  Waiting for repositories..."))
+		s.WriteString(clampCellWidth(unselectedStyle.Render("  Waiting for repositories..."), cw))
 		s.WriteString("\n")
 	}
 
@@ -879,7 +912,7 @@ func (m RepoSelectorModel) View() string {
 	}
 
 	if hasAbove {
-		s.WriteString(unselectedStyle.Render(fmt.Sprintf("  ↑ %d more", scrollOffset)))
+		s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↑ %d more", scrollOffset)), cw))
 		s.WriteString("\n")
 	}
 
@@ -936,17 +969,17 @@ func (m RepoSelectorModel) View() string {
 			dirtyIndicator,
 			scrollHint,
 		)
-		s.WriteString(line)
+		s.WriteString(clampCellWidth(line, cw))
 		s.WriteString("\n")
 	}
 
 	if hasBelow {
 		below := len(m.repos) - end
-		s.WriteString(unselectedStyle.Render(fmt.Sprintf("  ↓ %d more", below)))
+		s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↓ %d more", below)), cw))
 		s.WriteString("\n")
 	}
 	if indicatorsSuppressed {
-		s.WriteString(viewportWarningStyle.Render(viewportWarning))
+		s.WriteString(clampCellWidth(viewportWarningStyle.Render(viewportWarning), cw))
 		s.WriteString("\n")
 	}
 
@@ -954,31 +987,27 @@ func (m RepoSelectorModel) View() string {
 	if m.cfg != nil {
 		configHint = "  c  Settings  |  "
 	}
-	help := helpStyle.Render(
-		"\n" +
-			"Controls:\n" +
-			"  ↑/k, ↓/j  Navigate  |  ←/→  Scroll path  |  space  Toggle selection\n" +
-			"  m  Change mode  |  x  Ignore  |  a  Select all  |  n  Select none  |  r  Toggle rain\n" +
-			"  i  View ignored  |  " + configHint + "enter  Confirm  |  q  Quit\n\n" +
-			"Icons:\n" +
-			"  💧 = Has uncommitted changes\n" +
-			"  [✓] = Selected  |  [ ] = Not selected  |  ‹›  = path scrollable",
-	)
-	s.WriteString(help)
+	helpText := "\n" +
+		"Controls:\n" +
+		"  ↑/k, ↓/j  Navigate  |  ←/→  Scroll path  |  space  Toggle selection\n" +
+		"  m  Change mode  |  x  Ignore  |  a  Select all  |  n  Select none  |  r  Toggle rain\n" +
+		"  i  View ignored  |  " + configHint + "enter  Confirm  |  q  Quit\n\n" +
+		"Icons:\n" +
+		"  💧 = Has uncommitted changes\n" +
+		"  [✓] = Selected  |  [ ] = Not selected  |  ‹›  = path scrollable"
+	s.WriteString(helpStyle.MaxWidth(cw).Render(helpText))
 
 	if m.scanChan != nil || m.scanDisabled {
 		s.WriteString("\n")
 		s.WriteString(m.renderScanStatus())
 	}
 
-	innerW := m.windowWidth - 6
-	if innerW < 0 {
-		innerW = 0
-	}
+	innerW := PanelBlockWidth(m.windowWidth)
 	return boxStyle.Width(innerW).Render(s.String())
 }
 
 func (m RepoSelectorModel) renderScanStatus() string {
+	cw := m.contentWidth()
 	scanStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(activeProfile().scanBorder).
@@ -992,7 +1021,7 @@ func (m RepoSelectorModel) renderScanStatus() string {
 		} else {
 			label = "⚠️  Scanning Disabled"
 		}
-		return scanStyle.Render(lipgloss.NewStyle().Foreground(activeProfile().scanWarn).Render(label))
+		return clampCellWidth(scanStyle.Render(lipgloss.NewStyle().Foreground(activeProfile().scanWarn).Render(label)), cw)
 
 	case m.scanDone:
 		total := m.scanNewRegistryCount + m.scanKnownRegistryCount
@@ -1003,7 +1032,7 @@ func (m RepoSelectorModel) renderScanStatus() string {
 			msg = fmt.Sprintf("✅ Scan Complete  (%d in list: %d new to registry, %d known)",
 				total, m.scanNewRegistryCount, m.scanKnownRegistryCount)
 		}
-		return scanStyle.Render(lipgloss.NewStyle().Foreground(activeProfile().scanDone).Render(msg))
+		return clampCellWidth(scanStyle.Render(lipgloss.NewStyle().Foreground(activeProfile().scanDone).Render(msg)), cw)
 
 	default:
 		folder := m.scanCurrentPath
@@ -1011,6 +1040,12 @@ func (m RepoSelectorModel) renderScanStatus() string {
 			folder = "..."
 		}
 		maxLen := 50
+		if cw > 24 {
+			maxLen = cw - 16
+			if maxLen < 24 {
+				maxLen = 24
+			}
+		}
 		if len(folder) > maxLen {
 			folder = "..." + folder[len(folder)-maxLen+3:]
 		}
@@ -1018,13 +1053,13 @@ func (m RepoSelectorModel) renderScanStatus() string {
 		total := m.scanNewRegistryCount + m.scanKnownRegistryCount
 		line2 := fmt.Sprintf("   In list: %d  (%d new to registry, %d known)",
 			total, m.scanNewRegistryCount, m.scanKnownRegistryCount)
-		return scanStyle.Render(line1 + "\n" + line2)
+		return clampCellWidth(scanStyle.Render(line1+"\n"+line2), cw)
 	}
 }
 
 func (m RepoSelectorModel) viewIgnoredMain() string {
 	cw := m.contentWidth()
-	rainW := min(cw, 70)
+	rainW := RainDisplayWidth(m.windowWidth)
 
 	var s strings.Builder
 	if m.rainVisible() {
@@ -1042,7 +1077,7 @@ func (m RepoSelectorModel) viewIgnoredMain() string {
 	}
 
 	if len(m.ignoredEntries) == 0 {
-		s.WriteString(unselectedStyle.Render("No ignored repositories."))
+		s.WriteString(clampCellWidth(unselectedStyle.Render("No ignored repositories."), cw))
 		s.WriteString("\n")
 	} else {
 		visible := m.ignoredListVisibleCount()
@@ -1086,7 +1121,7 @@ func (m RepoSelectorModel) viewIgnoredMain() string {
 		}
 
 		if hasAbove {
-			s.WriteString(unselectedStyle.Render(fmt.Sprintf("  ↑ %d more", scrollOffset)))
+			s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↑ %d more", scrollOffset)), cw))
 			s.WriteString("\n")
 		}
 
@@ -1102,26 +1137,25 @@ func (m RepoSelectorModel) viewIgnoredMain() string {
 			} else if len([]rune(displayPath)) > maxPathCols {
 				displayPath = string([]rune(displayPath)[:maxPathCols-1]) + "…"
 			}
-			fmt.Fprintf(&s, "%s %s\n", cur, displayPath)
+			line := fmt.Sprintf("%s %s", cur, displayPath)
+			s.WriteString(clampCellWidth(line, cw))
+			s.WriteString("\n")
 		}
 
 		if hasBelow {
 			below := len(m.ignoredEntries) - end
-			s.WriteString(unselectedStyle.Render(fmt.Sprintf("  ↓ %d more", below)))
+			s.WriteString(clampCellWidth(unselectedStyle.Render(fmt.Sprintf("  ↓ %d more", below)), cw))
 			s.WriteString("\n")
 		}
 		if indicatorsSuppressed {
-			s.WriteString(viewportWarningStyle.Render(viewportWarning))
+			s.WriteString(clampCellWidth(viewportWarningStyle.Render(viewportWarning), cw))
 			s.WriteString("\n")
 		}
 	}
 
-	s.WriteString(renderIgnoredViewHelp())
+	s.WriteString(renderIgnoredViewHelp(cw))
 
-	innerW := m.windowWidth - 6
-	if innerW < 0 {
-		innerW = 0
-	}
+	innerW := PanelBlockWidth(m.windowWidth)
 	return boxStyle.Width(innerW).Render(s.String())
 }
 
@@ -1145,6 +1179,9 @@ func RunRepoSelector(repos []git.Repository, reg *registry.Registry, regPath str
 
 	finalModel, err := p.Run()
 	if err != nil {
+		if errors.Is(err, tea.ErrInterrupted) {
+			return nil, ErrCancelled
+		}
 		return nil, err
 	}
 
@@ -1172,6 +1209,9 @@ func RunRepoSelectorStream(
 
 	finalModel, err := p.Run()
 	if err != nil {
+		if errors.Is(err, tea.ErrInterrupted) {
+			return nil, ErrCancelled
+		}
 		return nil, err
 	}
 
