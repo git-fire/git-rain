@@ -28,10 +28,10 @@ func TestPanelBlockAndTextWidth(t *testing.T) {
 	if got := PanelTextWidth(6); got != 0 {
 		t.Fatalf("PanelTextWidth(6) = %d, want 0", got)
 	}
-	if got := RainDisplayWidth(200); got != 70 {
-		t.Fatalf("RainDisplayWidth(200) = %d, want 70", got)
+	if got := RainDisplayWidth(200); got != 190 {
+		t.Fatalf("RainDisplayWidth(200) = %d, want 190 (same as PanelTextWidth)", got)
 	}
 	if got := RainDisplayWidth(80); got != 70 {
-		t.Fatalf("RainDisplayWidth(80) = %d, want 70", got)
+		t.Fatalf("RainDisplayWidth(80) = %d, want 70 (same as PanelTextWidth)", got)
 	}
 }

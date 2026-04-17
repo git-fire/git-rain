@@ -31,11 +31,10 @@ func PanelTextWidth(terminalWidth int) int {
 	return w
 }
 
-// RainDisplayWidth caps the ASCII rain banner width to match the text area.
+// RainDisplayWidth is the cell width for the rain background and wave strip.
+// It must equal PanelTextWidth so every line inside the bordered panel matches
+// the inner content width; otherwise lipgloss rounded borders show gaps when
+// the first rows are shorter than later rows (main menu and settings).
 func RainDisplayWidth(terminalWidth int) int {
-	tw := PanelTextWidth(terminalWidth)
-	if tw > 70 {
-		return 70
-	}
-	return tw
+	return PanelTextWidth(terminalWidth)
 }
