@@ -193,6 +193,13 @@ func (m RepoSelectorModel) mainViewMeasuredRepoListCapacity() int {
 	if len(m.repos) == 0 {
 		return 1
 	}
+	innerW := PanelBlockWidth(m.windowWidth)
+	header := m.mainViewHeaderBlock()
+	footer := m.mainViewFooterBlock()
+	outerHeight := func(capacity int) int {
+		body := header + m.mainViewRepoListBlock(capacity) + footer
+		return lipgloss.Height(renderMainPanelBox(innerW, body))
+	}
 	// Binary search largest capacity that fits; best defaults to 1 when even a
 	// single row overflows the terminal (still show one row + scroll).
 	best := 1
@@ -202,7 +209,7 @@ func (m RepoSelectorModel) mainViewMeasuredRepoListCapacity() int {
 		if mid < 1 {
 			mid = 1
 		}
-		if m.mainViewPanelOuterHeight(mid) <= h {
+		if outerHeight(mid) <= h {
 			best = mid
 			lo = mid + 1
 		} else {
@@ -326,6 +333,13 @@ func (m RepoSelectorModel) ignoredMeasuredListCapacity() int {
 	if len(m.ignoredEntries) == 0 {
 		return 1
 	}
+	innerW := PanelBlockWidth(m.windowWidth)
+	header := m.ignoredViewHeaderBlock()
+	footer := m.ignoredViewFooterBlock()
+	outerHeight := func(capacity int) int {
+		body := header + m.ignoredViewListBlock(capacity) + footer
+		return lipgloss.Height(renderMainPanelBox(innerW, body))
+	}
 	best := 1
 	lo, hi := 1, len(m.ignoredEntries)
 	for lo <= hi {
@@ -333,7 +347,7 @@ func (m RepoSelectorModel) ignoredMeasuredListCapacity() int {
 		if mid < 1 {
 			mid = 1
 		}
-		if m.ignoredViewPanelOuterHeight(mid) <= h {
+		if outerHeight(mid) <= h {
 			best = mid
 			lo = mid + 1
 		} else {
