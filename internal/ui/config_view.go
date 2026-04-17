@@ -296,7 +296,7 @@ func (m RepoSelectorModel) viewConfig() string {
 			}
 		}
 
-		line := fmt.Sprintf("%s  %s%s%s",
+		line := fmt.Sprintf("%s  %s %s%s",
 			cursorStyle.Render(cur),
 			labelStyle.Render(row.label+":"),
 			valueStyle.Render(val),
