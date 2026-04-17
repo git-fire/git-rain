@@ -6,12 +6,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/mattn/go-isatty"
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
 	"github.com/git-rain/git-rain/internal/config"
@@ -135,14 +141,12 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainNoScan {
 		cfg.Global.DisableScan = true
 	}
-	riskyMode := cfg.Global.RiskyMode || rainRisky
-
 	branchModeStr := cfg.Global.BranchMode
 	if rainBranchMode != "" {
 		branchModeStr = rainBranchMode
 	}
 	rainOpts := git.RainOptions{
-		RiskyMode:        riskyMode,
+		RiskyMode:        cfg.Global.RiskyMode || rainRisky,
 		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
 		SyncTags:         cfg.Global.SyncTags || rainSyncTags,
 		FetchPrune:       cfg.Global.FetchPrune,
@@ -205,66 +209,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 		return runRainTUIStream(cfg, reg, regPath, opts, rainOpts, fullSync)
 	}
 
-	repos, err := git.ScanRepositories(opts)
-	if err != nil {
-		return fmt.Errorf("repository scan failed: %w", err)
-	}
-
-	now := time.Now()
-	defaultMode := git.ParseMode(cfg.Global.DefaultMode)
-	for i, repo := range repos {
-		repos[i], _ = upsertRepoIntoRegistry(reg, repo, now, defaultMode)
-	}
-	saveRegistry(reg, regPath)
-
-	active := make([]git.Repository, 0, len(repos))
-	for _, repo := range repos {
-		absPath, absErr := filepath.Abs(repo.Path)
-		if absErr != nil {
-			active = append(active, repo)
-			continue
-		}
-		entry := reg.FindByPath(absPath)
-		if entry != nil && entry.Status == registry.StatusIgnored {
-			continue
-		}
-		active = append(active, repo)
-	}
-	if len(active) == 0 {
-		fmt.Println("No git repositories found.")
-		return nil
-	}
-
-	fmt.Println("🌧️  Git Rain")
-	if fullSync {
-		if riskyMode {
-			fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
-		} else {
-			fmt.Println("✓ Safe mode: local-only commits are preserved")
-		}
-	} else if rainFetchMainline {
-		fmt.Println("✓ Mainline fetch: mainline remote-tracking refs only (--fetch-mainline; --prune is opt-in)")
-	} else {
-		fmt.Println("✓ Default: git fetch --all per repo (remote-tracking refs only; --prune opt-in; --fetch-mainline for less; --sync to update locals)")
-	}
-	fmt.Println()
-
-	totals := rainTotals{}
-	processRainRepositories(reg, active, rainOpts, fullSync, &totals)
-
-	fmt.Println(strings.Repeat("─", 48))
-	if totals.failed > 0 {
-		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totals.updated, totals.skipped, totals.frozen, totals.failed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
-	}
-	if totals.frozen > 0 {
-		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totals.updated, totals.skipped, totals.frozen)
-		return nil
-	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
-	return nil
+	return runRainDefaultStream(cfg, reg, regPath, opts, rainOpts, fullSync)
 }
 
 // weatherSymbol returns the terminal symbol for a branch outcome.
@@ -323,8 +268,9 @@ func outcomeLabel(outcome string) string {
 	}
 }
 
-// printRainBranchResults prints one line per branch (mainline fetch or full sync).
-func printRainBranchResults(branches []git.RainBranchResult, showBackup bool) {
+// writeRainBranchResults writes branch result lines to out (used by streaming
+// per-repo block builders so concurrent workers can serialize their output).
+func writeRainBranchResults(out io.Writer, branches []git.RainBranchResult, showBackup bool) {
 	for _, br := range branches {
 		symbol := weatherSymbol(br.Outcome)
 		line := fmt.Sprintf("    %s  %s", symbol, br.Branch)
@@ -338,7 +284,7 @@ func printRainBranchResults(branches []git.RainBranchResult, showBackup bool) {
 		if showBackup && br.BackupBranch != "" {
 			line += " (backup: " + br.BackupBranch + ")"
 		}
-		fmt.Println(line)
+		_, _ = fmt.Fprintln(out, line)
 	}
 }
 
@@ -363,76 +309,100 @@ type rainTotals struct {
 	failed  int
 }
 
-// processRainRepositories runs fetch or full rain for each repository and accumulates outcome counts.
+// processRainRepositories runs fetch or full rain for each repository sequentially
+// and accumulates outcome counts. Each repo's output is written as a single block
+// directly to stdout. Used for the --rain TUI post-processing path; the default
+// CLI run uses runRainDefaultStream for parallel execution.
 func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals) {
-	for _, repo := range repos {
-		fmt.Printf("  %s\n", repo.Name)
+	for i, repo := range repos {
+		var buf strings.Builder
+		delta := runRainOnRepo(reg, repo, rainOpts, fullSync, i+1, len(repos), &buf)
+		_, _ = io.WriteString(os.Stdout, buf.String())
+		totals.updated += delta.updated
+		totals.skipped += delta.skipped
+		totals.frozen += delta.frozen
+		totals.failed += delta.failed
+	}
+}
 
-		absRepo, absErr := filepath.Abs(repo.Path)
-		if absErr != nil {
-			absRepo = repo.Path
-		}
-		repoOpts, pruneErr := applyRepoFetchPrune(repo.Path, rainOpts, absRepo, reg)
-		if pruneErr != nil {
-			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
-			totals.failed++
-			continue
-		}
+// runRainOnRepo runs the rain operation for a single repository, writing its
+// entire output block (header + branch lines + trailing blank line) into out.
+// totalStr is rendered as "[N/M] reponame"; pass "?" for M when the total is
+// not yet known (streaming scan still in flight). Returns the totals delta.
+func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.RainOptions, fullSync bool, current, total int, out io.Writer) rainTotals {
+	totalStr := "?"
+	if total > 0 {
+		totalStr = strconv.Itoa(total)
+	}
+	_, _ = fmt.Fprintf(out, "  [%d/%s] %s\n", current, totalStr, repo.Name)
 
-		if !fullSync && !rainFetchMainline {
-			if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
-				fmt.Printf("    ❄  (fetch --all): %s\n\n",
-					safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
-				totals.frozen++
-				continue
-			}
-			fmt.Println("    ↓  fetched")
-			fmt.Println()
-			totals.updated++
-			continue
-		}
+	delta := rainTotals{}
 
-		if !fullSync {
-			res, fetchErr := git.MainlineFetchRemotes(repo.Path, repoOpts)
-			if fetchErr != nil {
-				fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
-				totals.failed++
-				continue
-			}
-			if len(res.Branches) == 0 {
-				fmt.Println("    ·  no mainline branches to fetch")
-				fmt.Println()
-				continue
-			}
-			printRainBranchResults(res.Branches, false)
-			fmt.Println()
-			totals.updated += res.Updated
-			totals.skipped += res.Skipped
-			totals.frozen += res.Frozen
-			totals.failed += res.Failed
-			continue
-		}
+	absRepo, absErr := filepath.Abs(repo.Path)
+	if absErr != nil {
+		absRepo = repo.Path
+	}
+	repoOpts, pruneErr := applyRepoFetchPrune(repo.Path, rainOpts, absRepo, reg)
+	if pruneErr != nil {
+		_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(pruneErr.Error()))
+		delta.failed++
+		return delta
+	}
 
-		res, rainErr := git.RainRepository(repo.Path, repoOpts)
-		if rainErr != nil {
-			fmt.Printf("    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
-			totals.failed++
-			continue
+	if !fullSync && !rainFetchMainline {
+		if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
+			_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n",
+				safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
+			delta.frozen++
+			return delta
+		}
+		_, _ = fmt.Fprintln(out, "    ↓  fetched")
+		_, _ = fmt.Fprintln(out)
+		delta.updated++
+		return delta
+	}
+
+	if !fullSync {
+		res, fetchErr := git.MainlineFetchRemotes(repo.Path, repoOpts)
+		if fetchErr != nil {
+			_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(fetchErr.Error()))
+			delta.failed++
+			return delta
 		}
 		if len(res.Branches) == 0 {
-			fmt.Println("    ·  no local branches")
-			fmt.Println()
-			continue
+			_, _ = fmt.Fprintln(out, "    ·  no mainline branches to fetch")
+			_, _ = fmt.Fprintln(out)
+			return delta
 		}
-
-		printRainBranchResults(res.Branches, true)
-		fmt.Println()
-
-		totals.updated += res.Updated
-		totals.skipped += res.Skipped
-		totals.frozen += res.Frozen
-		totals.failed += res.Failed
+		writeRainBranchResults(out, res.Branches, false)
+		_, _ = fmt.Fprintln(out)
+		delta.updated += res.Updated
+		delta.skipped += res.Skipped
+		delta.frozen += res.Frozen
+		delta.failed += res.Failed
+		return delta
 	}
+
+	res, rainErr := git.RainRepository(repo.Path, repoOpts)
+	if rainErr != nil {
+		_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
+		delta.failed++
+		return delta
+	}
+	if len(res.Branches) == 0 {
+		_, _ = fmt.Fprintln(out, "    ·  no local branches")
+		_, _ = fmt.Fprintln(out)
+		return delta
+	}
+
+	writeRainBranchResults(out, res.Branches, true)
+	_, _ = fmt.Fprintln(out)
+
+	delta.updated += res.Updated
+	delta.skipped += res.Skipped
+	delta.frozen += res.Frozen
+	delta.failed += res.Failed
+	return delta
 }
 
 func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool, cfg *config.Config) error {
@@ -593,6 +563,263 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 	fmt.Println()
 
 	return runRainOnRepos(reg, selected, rainOpts, fullSync)
+}
+
+// fetchWorkerCount returns the per-run parallel fetch worker count, clamped
+// to at least 1. Falls back to the package default when the config value is
+// non-positive (matches the loader's auto-fix behavior for fresh installs).
+func fetchWorkerCount(cfgWorkers int) int {
+	if cfgWorkers <= 0 {
+		return config.DefaultFetchWorkers
+	}
+	return cfgWorkers
+}
+
+// truncateScanProgressPath shortens path so its display width fits maxLen,
+// preserving the tail (most-specific component) and prepending an ellipsis.
+// Returns "" for empty input. When maxLen is too small for "...", falls back
+// to a hard width-truncation.
+func truncateScanProgressPath(path string, maxLen int) string {
+	if path == "" {
+		return ""
+	}
+	if maxLen <= 0 || runewidth.StringWidth(path) <= maxLen {
+		return path
+	}
+	const ellipsis = "..."
+	ellipsisWidth := runewidth.StringWidth(ellipsis)
+	if maxLen <= ellipsisWidth {
+		return runewidth.Truncate(path, maxLen, "")
+	}
+	remaining := maxLen - ellipsisWidth
+	runes := []rune(path)
+	start := len(runes)
+	width := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		rw := runewidth.RuneWidth(runes[i])
+		if width+rw > remaining {
+			break
+		}
+		width += rw
+		start = i
+	}
+	return ellipsis + string(runes[start:])
+}
+
+// scanProgressPathMaxLen returns the dynamic max display width for a scan
+// progress path, based on $COLUMNS and the prefix already on the line.
+func scanProgressPathMaxLen(prefix string) int {
+	const (
+		fallback = 72
+		minLen   = 8
+	)
+	cols, err := strconv.Atoi(os.Getenv("COLUMNS"))
+	if err != nil || cols <= 0 {
+		return fallback
+	}
+	dynamic := cols - runewidth.StringWidth(prefix)
+	if dynamic < minLen {
+		return minLen
+	}
+	if dynamic > fallback {
+		return fallback
+	}
+	return dynamic
+}
+
+// stdinInteractiveOK reports whether stdin is suitable for blocking prompts.
+// Always false under CI / known automation env vars or GIT_RAIN_NON_INTERACTIVE.
+func stdinInteractiveOK() bool {
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
+		return false
+	}
+	if os.Getenv("GIT_RAIN_NON_INTERACTIVE") != "" {
+		return false
+	}
+	if _, err := os.Stdin.Stat(); err != nil {
+		return false
+	}
+	fd := os.Stdin.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
+}
+
+// runRainDefaultStream is the default live-run path for `git-rain` (no flags
+// other than scope-narrowing ones). It pipelines scan -> registry upsert ->
+// per-repo rain so that fetching starts as soon as the first repo is found,
+// without waiting for the full filesystem scan to complete.
+//
+// Workers (cfg.Global.FetchWorkers, clamped >=1) consume repos from a buffered
+// channel and write each repo's full output block atomically under a mutex so
+// lines from concurrent repos never interleave. The folder-progress ticker
+// uses the same mutex so scan status lines cannot interleave with repo output.
+func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
+	fmt.Println("🌧️  Git Rain")
+	if fullSync {
+		if rainOpts.RiskyMode {
+			fmt.Println("⚠️  Risky mode enabled: local-only commits may be realigned after backup branch creation")
+		} else {
+			fmt.Println("✓ Safe mode: local-only commits are preserved")
+		}
+	} else if rainFetchMainline {
+		fmt.Println("✓ Mainline fetch: mainline remote-tracking refs only (--fetch-mainline; --prune is opt-in)")
+	} else {
+		fmt.Println("✓ Default: git fetch --all per repo (remote-tracking refs only; --prune opt-in; --fetch-mainline for less; --sync to update locals)")
+	}
+	fmt.Println()
+
+	ctx, cancelScan := context.WithCancel(context.Background())
+	defer cancelScan()
+	opts.Ctx = ctx
+
+	folderProgress := make(chan string, 32)
+	opts.FolderProgress = folderProgress
+
+	scanChan := make(chan git.Repository, opts.Workers)
+	repoChan := make(chan git.Repository, opts.Workers)
+
+	var printMu sync.Mutex
+
+	var totalFound int64
+	var scanErr error
+	scanDone := make(chan struct{})
+
+	go func() {
+		defer close(scanDone)
+		scanErr = git.ScanRepositoriesStream(opts, scanChan)
+	}()
+
+	// Folder-progress ticker: emits the latest scanned path every 2s while the
+	// walk is running, so long scans aren't silent. Skipped when DisableScan
+	// because there is no walk to report on.
+	var lastFolder atomic.Pointer[string]
+	if !opts.DisableScan {
+		go func() {
+			for p := range folderProgress {
+				pp := p
+				lastFolder.Store(&pp)
+			}
+		}()
+		go func() {
+			tick := time.NewTicker(2 * time.Second)
+			defer tick.Stop()
+			const scanPrefix = "   🔍 Scanning… "
+			for {
+				select {
+				case <-scanDone:
+					return
+				case <-tick.C:
+					ptr := lastFolder.Load()
+					if ptr != nil && *ptr != "" {
+						maxPathLen := scanProgressPathMaxLen(scanPrefix)
+						line := fmt.Sprintf("%s%s\n", scanPrefix, truncateScanProgressPath(*ptr, maxPathLen))
+						printMu.Lock()
+						_, _ = io.WriteString(os.Stdout, line)
+						printMu.Unlock()
+					}
+				}
+			}
+		}()
+	} else {
+		go func() {
+			for range folderProgress {
+			}
+		}()
+	}
+
+	// Upsert + filter goroutine: drains scanChan, registers/updates each repo,
+	// and forwards non-ignored repos to repoChan. Closes repoChan when the
+	// scan channel drains so workers exit naturally.
+	now := time.Now()
+	defaultMode := git.ParseMode(cfg.Global.DefaultMode)
+	upsertDone := make(chan struct{})
+	go func() {
+		defer close(upsertDone)
+		defer close(repoChan)
+		for repo := range scanChan {
+			repo, include := upsertRepoIntoRegistry(reg, repo, now, defaultMode)
+			if !include {
+				continue
+			}
+			atomic.AddInt64(&totalFound, 1)
+			repo.Selected = true
+			repoChan <- repo
+		}
+		saveRegistry(reg, regPath)
+	}()
+
+	// Worker pool consumes repos in parallel. printMu serializes per-repo
+	// output blocks so lines from concurrent repos can't interleave.
+	var (
+		updated int64
+		skipped int64
+		frozen  int64
+		failed  int64
+		seq     int64
+	)
+
+	workers := fetchWorkerCount(cfg.Global.FetchWorkers)
+	var workersWG sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		workersWG.Add(1)
+		go func() {
+			defer workersWG.Done()
+			for repo := range repoChan {
+				current := int(atomic.AddInt64(&seq, 1))
+				total := int(atomic.LoadInt64(&totalFound))
+				// While the scan is still running, total may equal current
+				// or be slightly ahead; treat "0 or behind" as unknown ("?").
+				if total < current {
+					total = 0
+				}
+
+				var buf strings.Builder
+				delta := runRainOnRepo(reg, repo, rainOpts, fullSync, current, total, &buf)
+
+				printMu.Lock()
+				_, _ = io.WriteString(os.Stdout, buf.String())
+				printMu.Unlock()
+
+				atomic.AddInt64(&updated, int64(delta.updated))
+				atomic.AddInt64(&skipped, int64(delta.skipped))
+				atomic.AddInt64(&frozen, int64(delta.frozen))
+				atomic.AddInt64(&failed, int64(delta.failed))
+			}
+		}()
+	}
+
+	workersWG.Wait()
+	<-upsertDone
+	<-scanDone
+
+	if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
+		fmt.Fprintf(os.Stderr, "warning: scan error: %s\n", safety.SanitizeText(scanErr.Error()))
+	}
+
+	if atomic.LoadInt64(&seq) == 0 {
+		fmt.Println("No git repositories found.")
+		return nil
+	}
+
+	totals := rainTotals{
+		updated: int(atomic.LoadInt64(&updated)),
+		skipped: int(atomic.LoadInt64(&skipped)),
+		frozen:  int(atomic.LoadInt64(&frozen)),
+		failed:  int(atomic.LoadInt64(&failed)),
+	}
+
+	fmt.Println(strings.Repeat("─", 48))
+	if totals.failed > 0 {
+		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
+	}
+	if totals.frozen > 0 {
+		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
+			totals.updated, totals.skipped, totals.frozen)
+		return nil
+	}
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
+	return nil
 }
 
 // runRainOnRepos runs fetch or full rain on a pre-selected list of repos.
