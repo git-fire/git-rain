@@ -53,7 +53,8 @@ Modes (from lightest fetch to full local updates):
      use --prune, config fetch_prune, registry fetch_prune, or git config rain.fetchprune.
 
   2. --fetch-mainline — targeted fetches for mainline branches only (faster when
-     you do not need every remote ref).
+     you do not need every remote ref). Cannot be combined with --sync, --risky,
+     non-mainline --branch-mode, or global risky_mode (full-sync triggers).
 
   3. --sync — hydrate local branches from remotes. Use --branch-mode for scope
      (mainline, checked-out, all-local, all-branches); all-branches can create
