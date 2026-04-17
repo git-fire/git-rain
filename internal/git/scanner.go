@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,7 +47,7 @@ func ScanRepositoriesStream(opts ScanOptions, out chan<- Repository) error {
 			if err != nil || !fi.IsDir() {
 				return
 			}
-			repo, err := analyzeRepository(p)
+			repo, err := analyzeRepository(ctx, p)
 			if err != nil {
 				return
 			}
@@ -146,31 +147,42 @@ func ScanRepositories(opts ScanOptions) ([]Repository, error) {
 
 // AnalyzeRepository extracts metadata from a git repository at repoPath.
 func AnalyzeRepository(repoPath string) (Repository, error) {
-	return analyzeRepository(repoPath)
+	return analyzeRepository(context.Background(), repoPath)
 }
 
-func analyzeRepository(repoPath string) (Repository, error) {
+func analyzeRepository(ctx context.Context, repoPath string) (Repository, error) {
+	if err := ctx.Err(); err != nil {
+		return Repository{}, err
+	}
 	repo := Repository{
 		Path:     repoPath,
 		Name:     filepath.Base(repoPath),
 		Selected: true,
 	}
 
-	remotes, err := getRemotes(repoPath)
+	remotes, err := getRemotes(ctx, repoPath)
 	if err == nil {
 		repo.Remotes = remotes
+	} else if errors.Is(err, context.Canceled) {
+		return Repository{}, err
 	}
 
-	dirty, err := isDirty(repoPath)
+	if err := ctx.Err(); err != nil {
+		return Repository{}, err
+	}
+
+	dirty, err := isDirty(ctx, repoPath)
 	if err == nil {
 		repo.IsDirty = dirty
+	} else if errors.Is(err, context.Canceled) {
+		return Repository{}, err
 	}
 
 	return repo, nil
 }
 
-func getRemotes(repoPath string) ([]Remote, error) {
-	cmd := exec.Command("git", "remote", "-v")
+func getRemotes(ctx context.Context, repoPath string) ([]Remote, error) {
+	cmd := exec.CommandContext(ctx, "git", "remote", "-v")
 	cmd.Dir = repoPath
 
 	output, err := cmd.Output()
@@ -210,8 +222,8 @@ func getRemotes(repoPath string) ([]Remote, error) {
 	return remotes, nil
 }
 
-func isDirty(repoPath string) (bool, error) {
-	cmd := exec.Command("git", "status", "--porcelain")
+func isDirty(ctx context.Context, repoPath string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	cmd.Dir = repoPath
 
 	output, err := cmd.Output()

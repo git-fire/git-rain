@@ -511,7 +511,8 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 	opts.FolderProgress = folderProgress
 
 	scanChan := make(chan git.Repository, opts.Workers)
-	tuiRepoChan := make(chan git.Repository, opts.Workers)
+	// Large buffer so the bridge rarely blocks on send if the TUI stops consuming.
+	tuiRepoChan := make(chan git.Repository, 256)
 
 	var scanErr error
 	scanDone := make(chan struct{})
@@ -548,7 +549,10 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 		regPath,
 	)
 
-	// Drain channels before cancelling so goroutines can't block on sends.
+	// Cancel scan first so filepath walk and in-flight git subprocesses unwind.
+	cancelScan()
+
+	// Drain the TUI channel so the bridge never blocks on send while the scanner closes.
 	go func() {
 		for range tuiRepoChan {
 		}
@@ -557,7 +561,6 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 		for range folderProgress {
 		}
 	}()
-	cancelScan()
 	<-scanDone
 
 	if err != nil {
