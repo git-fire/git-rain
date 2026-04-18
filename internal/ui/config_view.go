@@ -41,6 +41,7 @@ var configRows = []configRow{
 		config.UIRainAnimationBasic,
 		config.UIRainAnimationAdvanced,
 		config.UIRainAnimationMatrix,
+		config.UIRainAnimationGarden,
 	}},
 	{label: "Show flavor quotes", kind: configRowBool},
 	{label: "Flavor quote behavior", kind: configRowEnum, options: []string{
@@ -251,7 +252,7 @@ func (m RepoSelectorModel) viewConfig() string {
 		rainW := RainDisplayWidth(m.windowWidth)
 		s.WriteString(m.rainBg.Render())
 		s.WriteString("\n")
-		s.WriteString(RenderRainWave(rainW, m.frameIndex, m.rainAnimationMode))
+		s.WriteString(m.renderRainWaveStrip(rainW))
 		s.WriteString("\n\n")
 	}
 
@@ -342,7 +343,12 @@ func (m RepoSelectorModel) syncRuntimeFromConfig(cmds []tea.Cmd) (RepoSelectorMo
 	m.rainTick = time.Duration(m.cfg.UI.RainTickMS) * time.Millisecond
 	m.rainAnimationMode = m.cfg.UI.RainAnimationMode
 	if m.rainBg != nil {
-		m.rainBg.Mode = m.rainAnimationMode
+		bgW, h := m.rainBg.Width, m.rainBg.Height
+		if m.rainBg.Mode != m.rainAnimationMode {
+			m.rainBg = NewRainBackground(bgW, h, m.rainAnimationMode)
+		} else {
+			m.rainBg.Mode = m.rainAnimationMode
+		}
 	}
 	m.showStartupQuote = m.cfg.UI.ShowStartupQuote
 	m.startupQuoteBehavior = m.cfg.UI.StartupQuoteBehavior

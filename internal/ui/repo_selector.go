@@ -712,6 +712,11 @@ func resolveRainBackgroundWidth(terminalWidth int) int {
 	return w
 }
 
+func (m RepoSelectorModel) renderRainWaveStrip(width int) string {
+	sunny := m.rainBg != nil && m.rainAnimationMode == config.UIRainAnimationGarden && m.rainBg.GardenSunny
+	return RenderRainWave(width, m.frameIndex, m.rainAnimationMode, sunny)
+}
+
 // clampCellWidth keeps one screen row within maxCells using lipgloss truncation.
 // Degeneracy: maxCells < 1 means "no usable width" — return s unchanged; empty s
 // is also a no-op. For maxCells == 1, truncation still runs (single visible cell).
