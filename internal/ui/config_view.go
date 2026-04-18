@@ -349,6 +349,7 @@ func (m RepoSelectorModel) syncRuntimeFromConfig(cmds []tea.Cmd) (RepoSelectorMo
 		} else {
 			m.rainBg.Mode = m.rainAnimationMode
 		}
+		m.applyGardenTuning(m.rainBg)
 	}
 	m.showStartupQuote = m.cfg.UI.ShowStartupQuote
 	m.startupQuoteBehavior = m.cfg.UI.StartupQuoteBehavior

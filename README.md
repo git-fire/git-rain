@@ -327,6 +327,36 @@ GIT_RAIN_GLOBAL_RISKY_MODE=true git-rain
 GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
 ```
 
+### Garden mode tuning (advanced)
+
+Picking `rain_animation_mode = "garden"` swaps the rain background for a
+slow-paced lifecycle: seeds drift down with the rain, plants progress through
+sprout, bud, and bloom, then wither and scatter 2–3 new seeds nearby. When the
+visible plants cover roughly 80% of the rain strip, the storm clears, the sun
+comes out, and the surviving flowers stay forever.
+
+The defaults aim for a calm pace, but a few advanced TOML keys are available
+under `[ui]` for tweaking. They are intentionally **not** surfaced in the
+in-app settings TUI — leave any unset (or set to `0`) to keep the default.
+
+```toml
+[ui]
+rain_animation_mode = "garden"
+
+# garden_seed_rate            = 0.10   # fraction of new sky drops that fall as seeds (0..1)
+# garden_growth_pace          = 1.0    # multiplier on stage moisture thresholds (>1 = slower)
+# garden_bloom_duration_base  = 60     # min frames a flower lingers in full bloom
+# garden_bloom_duration_jitter = 40    # extra random frames added to bloom lifetime
+# garden_wither_duration      = 28     # frames a withered plant lingers before re-seeding
+# garden_offspring_min        = 2      # minimum seeds a dying plant scatters
+# garden_offspring_max        = 3      # maximum seeds a dying plant scatters
+# garden_offspring_spread     = 3      # X-jitter half-width around the parent column
+```
+
+`garden_growth_pace` is the most useful single dial: set it to `2.0` to roughly
+halve growth speed, or `0.5` to roughly double it. The other knobs trade
+visual density (more or fewer seeds, longer or shorter blooms) for clarity.
+
 ### Config file, locks, and crashes
 
 **Registry (`repos.toml`)** — Writes use a cross-process lock file (`repos.toml.lock`), atomic replace, and stale-lock detection (owner PID). If a process dies mid-run you may still see a leftover lock: the CLI prompts to remove it when safe, or you can use **`--force-unlock-registry`** in scripts. This is the same class of “stale lock / don’t corrupt the database” problem as other multi-repo tools; treat lock removal like any other forced unlock — only when you are sure no other `git-rain` is running.

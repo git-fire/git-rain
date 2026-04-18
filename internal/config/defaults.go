@@ -114,7 +114,8 @@ mainline_patterns = []
 show_rain_animation = true
 
 # Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-# or "matrix" (falling code characters)
+# "matrix" (falling code characters), or "garden" (seeds bloom into a meadow,
+# then the rain stops and the sun comes out)
 rain_animation_mode = "basic"
 
 # Show flavor quotes in the TUI banner
@@ -131,5 +132,19 @@ rain_tick_ms = 150
 
 # Color profile: "storm", "drizzle", "monsoon", "rainbow", "synthwave"
 color_profile = "storm"
+
+# --- Garden mode tuning (advanced) -----------------------------------------
+# These keys only affect rain_animation_mode = "garden". Leave them unset
+# (or at 0) to use the built-in defaults; tweak to make growth slower or
+# offspring more (or less) prolific.
+#
+# garden_seed_rate            = 0.10   # fraction of new sky drops that are seeds (0..1)
+# garden_growth_pace          = 1.0    # multiplier on stage moisture thresholds (>1 = slower)
+# garden_bloom_duration_base  = 60     # min frames a flower lingers in full bloom
+# garden_bloom_duration_jitter = 40    # extra random frames added to bloom lifetime
+# garden_wither_duration      = 28     # frames a withered plant lingers before re-seeding
+# garden_offspring_min        = 2      # minimum seeds a dying plant scatters
+# garden_offspring_max        = 3      # maximum seeds a dying plant scatters
+# garden_offspring_spread     = 3      # X-jitter half-width around the parent column
 `
 }

@@ -76,6 +76,39 @@ type UIConfig struct {
 	// Color profile for rain and TUI accents.
 	// Options: "storm", "drizzle", "monsoon", "rainbow", "synthwave".
 	ColorProfile string `mapstructure:"color_profile" toml:"color_profile"`
+
+	// Garden mode tuning (advanced; not surfaced in the settings TUI).
+	// Any field left at its zero value falls back to the built-in default,
+	// matching the existing pattern used by RainTickMS.
+
+	// GardenSeedRate is the probability (0..1) that a new sky drop falls as
+	// a seed. Lower values mean rarer seedings; default ~0.10.
+	GardenSeedRate float64 `mapstructure:"garden_seed_rate"        toml:"garden_seed_rate,omitempty"`
+
+	// GardenGrowthPace multiplies the moisture thresholds for every growth
+	// stage. >1 slows growth; <1 speeds it up; 0 = use defaults.
+	GardenGrowthPace float64 `mapstructure:"garden_growth_pace"      toml:"garden_growth_pace,omitempty"`
+
+	// GardenBloomDurationBase is the minimum bloom lifetime in animation
+	// frames before a flower starts to wither. 0 = default.
+	GardenBloomDurationBase int `mapstructure:"garden_bloom_duration_base"   toml:"garden_bloom_duration_base,omitempty"`
+
+	// GardenBloomDurationJitter is added on top of the base bloom duration
+	// (uniform random in [0, jitter)). 0 = default.
+	GardenBloomDurationJitter int `mapstructure:"garden_bloom_duration_jitter" toml:"garden_bloom_duration_jitter,omitempty"`
+
+	// GardenWitherDuration is how many frames a withered plant lingers
+	// before crumbling and seeding offspring. 0 = default.
+	GardenWitherDuration int `mapstructure:"garden_wither_duration"  toml:"garden_wither_duration,omitempty"`
+
+	// GardenOffspringMin/Max bound how many seeds a dying plant scatters.
+	// 0 = use defaults (currently 2 and 3).
+	GardenOffspringMin int `mapstructure:"garden_offspring_min"    toml:"garden_offspring_min,omitempty"`
+	GardenOffspringMax int `mapstructure:"garden_offspring_max"    toml:"garden_offspring_max,omitempty"`
+
+	// GardenOffspringSpread is the half-width X jitter applied around the
+	// parent column when scattering offspring seeds. 0 = default.
+	GardenOffspringSpread int `mapstructure:"garden_offspring_spread" toml:"garden_offspring_spread,omitempty"`
 }
 
 const (

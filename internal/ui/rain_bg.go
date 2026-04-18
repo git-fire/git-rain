@@ -54,6 +54,110 @@ type gardenPlot struct {
 	moisture  int
 	bloomAge  int
 	witherAge int
+	maxBloom  int // randomized per-bloom duration; computed when entering bloom
+}
+
+// GardenTuning controls the pacing and reproductive behavior of garden mode.
+// Zero-valued fields are filled in from DefaultGardenTuning() by ResolveGardenTuning.
+type GardenTuning struct {
+	// SeedSpawnRate is the fraction of new sky drops that fall as seeds (0..1).
+	SeedSpawnRate float64
+
+	// RainAbsorbExtraChance is the probability that an extra rain drop in the
+	// same frame still counts after the per-column water cap is reached.
+	RainAbsorbExtraChance float64
+
+	// Moisture thresholds to advance through plant stages.
+	PlantedToSproutMoisture int
+	SproutToBudMoisture     int
+	BudToBloomMoisture      int
+
+	// SeedMoistureBoost is the moisture added when a seed lands on an existing plot.
+	SeedMoistureBoost int
+
+	// Bloom and wither timing (frames). Effective bloom duration is
+	// BloomDurationBase + rand.Intn(BloomDurationJitter).
+	BloomDurationBase   int
+	BloomDurationJitter int
+	WitherDuration      int
+
+	// OffspringMin..OffspringMax (inclusive) seeds spawn from each dying plant.
+	// OffspringSpread is the half-width of the X jitter window around the parent.
+	OffspringMin    int
+	OffspringMax    int
+	OffspringSpread int
+}
+
+// DefaultGardenTuning returns the built-in pacing constants chosen so the
+// garden takes its time: most sky pixels are rain, columns advance at most
+// once per frame, blooms linger, and dying plants leave 2-3 nearby seeds.
+func DefaultGardenTuning() GardenTuning {
+	return GardenTuning{
+		SeedSpawnRate:           0.10,
+		RainAbsorbExtraChance:   0.15,
+		PlantedToSproutMoisture: 10,
+		SproutToBudMoisture:     14,
+		BudToBloomMoisture:      18,
+		SeedMoistureBoost:       2,
+		BloomDurationBase:       60,
+		BloomDurationJitter:     40,
+		WitherDuration:          28,
+		OffspringMin:            2,
+		OffspringMax:            3,
+		OffspringSpread:         3,
+	}
+}
+
+// ResolveGardenTuning fills any zero-valued field in t with the corresponding
+// default. Callers (e.g. config plumbing) can pass partial structs.
+func ResolveGardenTuning(t GardenTuning) GardenTuning {
+	d := DefaultGardenTuning()
+	if t.SeedSpawnRate <= 0 {
+		t.SeedSpawnRate = d.SeedSpawnRate
+	}
+	if t.RainAbsorbExtraChance <= 0 {
+		t.RainAbsorbExtraChance = d.RainAbsorbExtraChance
+	}
+	if t.PlantedToSproutMoisture <= 0 {
+		t.PlantedToSproutMoisture = d.PlantedToSproutMoisture
+	}
+	if t.SproutToBudMoisture <= 0 {
+		t.SproutToBudMoisture = d.SproutToBudMoisture
+	}
+	if t.BudToBloomMoisture <= 0 {
+		t.BudToBloomMoisture = d.BudToBloomMoisture
+	}
+	if t.SeedMoistureBoost <= 0 {
+		t.SeedMoistureBoost = d.SeedMoistureBoost
+	}
+	if t.BloomDurationBase <= 0 {
+		t.BloomDurationBase = d.BloomDurationBase
+	}
+	if t.BloomDurationJitter <= 0 {
+		t.BloomDurationJitter = d.BloomDurationJitter
+	}
+	if t.WitherDuration <= 0 {
+		t.WitherDuration = d.WitherDuration
+	}
+	if t.OffspringMin <= 0 {
+		t.OffspringMin = d.OffspringMin
+	}
+	if t.OffspringMax <= 0 {
+		t.OffspringMax = d.OffspringMax
+	}
+	if t.OffspringMax < t.OffspringMin {
+		t.OffspringMax = t.OffspringMin
+	}
+	if t.OffspringSpread <= 0 {
+		t.OffspringSpread = d.OffspringSpread
+	}
+	if t.SeedSpawnRate > 1 {
+		t.SeedSpawnRate = 1
+	}
+	if t.RainAbsorbExtraChance > 1 {
+		t.RainAbsorbExtraChance = 1
+	}
+	return t
 }
 
 // flowerCell tracks accumulated rainfall at a column for the advanced animation
@@ -71,7 +175,8 @@ type RainBackground struct {
 	Flowers     []flowerCell
 	CloudRow    []string // pre-rendered cloud chars per column
 	GardenPlots []gardenPlot
-	GardenSunny bool // garden mode: rain finished, sky cleared
+	GardenSunny bool         // garden mode: rain finished, sky cleared
+	Garden      GardenTuning // pacing knobs (always resolved to non-zero values)
 }
 
 // NewRainBackground creates a new rain background
@@ -82,6 +187,7 @@ func NewRainBackground(width, height int, mode string) *RainBackground {
 		Drops:  make([]RainDrop, 0),
 		Frame:  0,
 		Mode:   mode,
+		Garden: DefaultGardenTuning(),
 	}
 	if width > 0 {
 		rb.Flowers = make([]flowerCell, width)
@@ -92,6 +198,12 @@ func NewRainBackground(width, height int, mode string) *RainBackground {
 	}
 	rb.Reset()
 	return rb
+}
+
+// SetGardenTuning replaces the active garden tuning. Zero-valued fields in t
+// are resolved to defaults; callers can pass partial structs.
+func (rb *RainBackground) SetGardenTuning(t GardenTuning) {
+	rb.Garden = ResolveGardenTuning(t)
 }
 
 func (rb *RainBackground) buildCloudRow() []string {
@@ -139,7 +251,7 @@ func (rb *RainBackground) spawnDrop(minY int) {
 		char = matrixGlyphPool[rand.Intn(len(matrixGlyphPool))]
 	}
 	if rb.Mode == config.UIRainAnimationGarden && !rb.GardenSunny {
-		if rand.Float64() < 0.28 {
+		if rand.Float64() < rb.Garden.SeedSpawnRate {
 			isSeed = true
 			char = "∘"
 			speed = 2 + rand.Intn(2) // seeds fall a little slower
@@ -172,6 +284,14 @@ func (rb *RainBackground) Update() {
 	if rb.Mode == config.UIRainAnimationGarden && rb.GardenSunny {
 		rb.gardenAdvancePlotsSunny()
 		return
+	}
+
+	// Per-frame water cap: each garden column accepts at most one rain hit
+	// per Update, with a small chance of accepting a second so dense rain
+	// still reads as "soaking" without machine-gunning growth thresholds.
+	var gardenWatered []bool
+	if rb.Mode == config.UIRainAnimationGarden && !rb.GardenSunny && rb.Width > 0 {
+		gardenWatered = make([]bool, rb.Width)
 	}
 
 	for i := range rb.Drops {
@@ -223,10 +343,15 @@ func (rb *RainBackground) Update() {
 					g.bloomAge = 0
 					g.witherAge = 0
 				} else {
-					g.moisture += 2
+					g.moisture += rb.Garden.SeedMoistureBoost
 				}
-			} else {
-				rb.gardenWaterPlot(g)
+			} else if gardenWatered != nil {
+				if !gardenWatered[p.X] {
+					rb.gardenWaterPlot(g)
+					gardenWatered[p.X] = true
+				} else if rb.Garden.RainAbsorbExtraChance > 0 && rand.Float64() < rb.Garden.RainAbsorbExtraChance {
+					rb.gardenWaterPlot(g)
+				}
 			}
 		}
 	}
@@ -405,22 +530,36 @@ func (rb *RainBackground) gardenWaterPlot(g *gardenPlot) {
 	g.moisture++
 	switch g.stage {
 	case gardenStagePlanted:
-		if g.moisture >= 4 {
+		if g.moisture >= rb.Garden.PlantedToSproutMoisture {
 			g.stage = gardenStageSprout
 			g.moisture = 0
 		}
 	case gardenStageSprout:
-		if g.moisture >= 6 {
+		if g.moisture >= rb.Garden.SproutToBudMoisture {
 			g.stage = gardenStageBud
 			g.moisture = 0
 		}
 	case gardenStageBud:
-		if g.moisture >= 8 {
+		if g.moisture >= rb.Garden.BudToBloomMoisture {
 			g.stage = gardenStageBloom
 			g.moisture = 0
 			g.bloomAge = 0
+			g.maxBloom = rb.gardenRollBloomDuration()
 		}
 	}
+}
+
+// gardenRollBloomDuration returns a randomized bloom lifetime in frames.
+func (rb *RainBackground) gardenRollBloomDuration() int {
+	base := rb.Garden.BloomDurationBase
+	jit := rb.Garden.BloomDurationJitter
+	if jit > 0 {
+		base += rand.Intn(jit)
+	}
+	if base < 1 {
+		base = 1
+	}
+	return base
 }
 
 func (rb *RainBackground) gardenAdvancePlots() {
@@ -432,19 +571,24 @@ func (rb *RainBackground) gardenAdvancePlots() {
 		switch g.stage {
 		case gardenStageBloom:
 			g.bloomAge++
-			maxBloom := 36 + (i % 19)
+			maxBloom := g.maxBloom
+			if maxBloom <= 0 {
+				maxBloom = rb.gardenRollBloomDuration()
+				g.maxBloom = maxBloom
+			}
 			if g.bloomAge >= maxBloom {
 				g.stage = gardenStageWither
 				g.witherAge = 0
 			}
 		case gardenStageWither:
 			g.witherAge++
-			if g.witherAge >= 18 {
+			if g.witherAge >= rb.Garden.WitherDuration {
 				g.stage = gardenStageNone
 				g.moisture = 0
 				g.bloomAge = 0
 				g.witherAge = 0
-				rb.spawnGardenSeed(i)
+				g.maxBloom = 0
+				rb.spawnGardenSeedsBurst(i)
 			}
 		}
 	}
@@ -497,6 +641,11 @@ func (rb *RainBackground) spawnGardenSeed(x int) {
 		return
 	}
 	startY := 1
+	if rb.Height > 3 {
+		// Stagger so multiple offspring don't appear in lockstep.
+		startY = 1 + rand.Intn(2)
+	}
+	speed := 2 + rand.Intn(2)
 	rb.Drops = append(rb.Drops, RainDrop{
 		X:        x,
 		Y:        startY,
@@ -504,9 +653,47 @@ func (rb *RainBackground) spawnGardenSeed(x int) {
 		ColorIdx: 0,
 		Age:      0,
 		MaxAge:   rb.Height + 10,
-		Speed:    2,
+		Speed:    speed,
 		IsSeed:   true,
 	})
+}
+
+// spawnGardenSeedsBurst scatters OffspringMin..OffspringMax seeds around
+// originX so a dying plant repopulates a small neighborhood instead of
+// directly replacing itself. Offsets are clamped to [0, width-1].
+func (rb *RainBackground) spawnGardenSeedsBurst(originX int) {
+	if rb.Width <= 0 || rb.Height <= 0 || rb.GardenSunny {
+		return
+	}
+	minN := rb.Garden.OffspringMin
+	maxN := rb.Garden.OffspringMax
+	if minN < 1 {
+		minN = 1
+	}
+	if maxN < minN {
+		maxN = minN
+	}
+	n := minN
+	if maxN > minN {
+		n += rand.Intn(maxN - minN + 1)
+	}
+	spread := rb.Garden.OffspringSpread
+	if spread < 0 {
+		spread = 0
+	}
+	for k := 0; k < n; k++ {
+		x := originX
+		if spread > 0 {
+			x += rand.Intn(2*spread+1) - spread
+		}
+		if x < 0 {
+			x = 0
+		}
+		if x >= rb.Width {
+			x = rb.Width - 1
+		}
+		rb.spawnGardenSeed(x)
+	}
 }
 
 func (rb *RainBackground) paintGardenOverlays(cells []string) {
