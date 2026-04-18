@@ -33,3 +33,25 @@ func TestRenderRainWaveMatrixWidth(t *testing.T) {
 		t.Fatalf("lipgloss.Width(RenderRainWave matrix) = %d, want %d", got, width)
 	}
 }
+
+func TestMatrixMarqueeCharSingleCell(t *testing.T) {
+	for frame := 0; frame < 2000; frame++ {
+		for x := 0; x < 80; x++ {
+			if c, ok := matrixMarqueeChar(x, frame, 80); ok {
+				if got := lipgloss.Width(c); got != 1 {
+					t.Fatalf("marquee char width %d at x=%d frame=%d: %q", got, x, frame, c)
+				}
+			}
+		}
+	}
+}
+
+func TestMatrixVerticalSubliminalCharSingleCell(t *testing.T) {
+	for frame := 0; frame < 500; frame++ {
+		if c, ok := matrixVerticalSubliminalChar(frame); ok {
+			if got := lipgloss.Width(c); got != 1 {
+				t.Fatalf("vertical subliminal width %d at frame=%d: %q", got, frame, c)
+			}
+		}
+	}
+}

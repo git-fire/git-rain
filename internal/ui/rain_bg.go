@@ -108,6 +108,12 @@ func (rb *RainBackground) spawnDrop(minY int) {
 	char := rainDropChars[rand.Intn(len(rainDropChars))]
 	if rb.Mode == config.UIRainAnimationMatrix {
 		char = matrixGlyphPool[rand.Intn(len(matrixGlyphPool))]
+		// Rarely swap in a subliminal ASCII cell (single-column safe).
+		if rand.Float64() < 0.04 {
+			if c, ok := matrixMarqueeChar(rand.Intn(rb.Width), rb.Frame, rb.Width); ok {
+				char = c
+			}
+		}
 	}
 	drop := RainDrop{
 		X:        rand.Intn(rb.Width),
@@ -151,6 +157,12 @@ func (rb *RainBackground) Update() {
 		}
 		if p.X >= rb.Width {
 			p.X = rb.Width - 1
+		}
+
+		if rb.Mode == config.UIRainAnimationMatrix && rand.Float64() < 0.02 {
+			if c, ok := matrixMarqueeChar(p.X, rb.Frame, rb.Width); ok {
+				p.Char = c
+			}
 		}
 
 		// Color gradient: top (dark) → bottom (bright)
@@ -245,6 +257,26 @@ func (rb *RainBackground) Render() string {
 		}
 	}
 
+	if rb.Mode == config.UIRainAnimationMatrix {
+		subY := matrixSubliminalBackgroundRow(rb.Height)
+		if subY >= 0 && subY < rb.Height && len(styles) > 0 {
+			dim := lipgloss.NewStyle().
+				Foreground(matrixRainColors[2]).
+				Faint(true)
+			mid := len(styles) / 2
+			if mid < 0 {
+				mid = 0
+			}
+			for x := 0; x < rb.Width; x++ {
+				if c, ok := matrixMarqueeCharBackground(x, rb.Frame, rb.Width, rb.Height); ok {
+					cells[subY*rb.Width+x] = dim.Render(c)
+				} else if rand.Float64() < 0.012 {
+					cells[subY*rb.Width+x] = styles[mid].Faint(true).Render(matrixGlyphPool[(x+rb.Frame)%len(matrixGlyphPool)])
+				}
+			}
+		}
+	}
+
 	var result strings.Builder
 	result.Grow(rb.Width*rb.Height*2 + rb.Height)
 	for y := 0; y < rb.Height; y++ {
@@ -317,7 +349,17 @@ func RenderRainWave(width, frame int, mode string) string {
 			if colorIdx >= len(styles) {
 				colorIdx = len(styles) - 1
 			}
-			result.WriteString(styles[colorIdx].Render(char))
+			style := styles[colorIdx]
+			if c, ok := matrixWaveMaybeSubliminal(x, frame, width); ok {
+				char = c
+				style = style.Faint(true)
+			} else if width > 0 && x == width/2 && frame%47 == 0 {
+				if c, ok := matrixVerticalSubliminalChar(frame / 47); ok {
+					char = c
+					style = style.Faint(true)
+				}
+			}
+			result.WriteString(style.Render(char))
 		}
 		return result.String()
 	}
