@@ -56,7 +56,8 @@ type UIConfig struct {
 	// Automatically suppressed when the terminal is too short.
 	ShowRainAnimation bool `mapstructure:"show_rain_animation" toml:"show_rain_animation"`
 
-	// Animation mode: "basic" (rain drops) or "advanced" (clouds + rain + flowers).
+	// Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
+	// or "matrix" (falling code glyphs in the same column pattern).
 	RainAnimationMode string `mapstructure:"rain_animation_mode" toml:"rain_animation_mode"`
 
 	// Show flavor quotes: TUI banner plus CLI motivation lines.
@@ -89,6 +90,7 @@ const (
 
 	UIRainAnimationBasic    = "basic"
 	UIRainAnimationAdvanced = "advanced"
+	UIRainAnimationMatrix   = "matrix"
 )
 
 // UIColorProfiles returns valid built-in UI color profile names.

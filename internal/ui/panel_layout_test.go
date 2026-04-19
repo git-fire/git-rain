@@ -61,3 +61,14 @@ func TestRenderMainPanelBoxWithEmojiLine(t *testing.T) {
 		t.Fatalf("inconsistent line widths (border gaps on some terminals): %v", widths)
 	}
 }
+
+func TestNormalizePanelInnerLinesWideEmojiRow(t *testing.T) {
+	cells := panelInnerLipglossWidth(40)
+	inner := "ok\n🌧️  GIT RAIN — SETTINGS\nok"
+	norm := normalizePanelInnerLines(inner, cells)
+	for i, line := range strings.Split(norm, "\n") {
+		if got := lipgloss.Width(line); got != cells {
+			t.Fatalf("line %d: width %d, want %d\n%q", i, got, cells, line)
+		}
+	}
+}
