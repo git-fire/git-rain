@@ -77,7 +77,7 @@ var gardenSettingsConfigRows = []configRow{
 
 // Snow settings rows appear only when rain mode is snow.
 var snowSettingsConfigRows = []configRow{
-	{label: "Snow accumulation", kind: configRowEnum, options: []string{"1×", "2×", "3×", "4×", "6×", "8×"}},
+	{label: "Snow accumulation", kind: configRowEnum, options: []string{"1×", "2×", "3×", "4×", "5×", "6×", "7×", "8×"}},
 }
 
 func modeExtensionRows(cfg *config.Config) []configRow {
@@ -200,20 +200,8 @@ func snowAccumLabel(cfg *config.Config) string {
 	if cfg == nil {
 		return "1×"
 	}
-	switch config.SnowAccumPerLanding(cfg.UI.SnowAccumulationRate) {
-	case 2:
-		return "2×"
-	case 3:
-		return "3×"
-	case 4:
-		return "4×"
-	case 6:
-		return "6×"
-	case 8:
-		return "8×"
-	default:
-		return "1×"
-	}
+	n := config.SnowAccumPerLanding(cfg.UI.SnowAccumulationRate)
+	return fmt.Sprintf("%d×", n)
 }
 
 func configRowValue(visibleI int, cfg *config.Config) string {
@@ -332,8 +320,12 @@ func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 					cfg.UI.SnowAccumulationRate = 3
 				case "4×":
 					cfg.UI.SnowAccumulationRate = 4
+				case "5×":
+					cfg.UI.SnowAccumulationRate = 5
 				case "6×":
 					cfg.UI.SnowAccumulationRate = 6
+				case "7×":
+					cfg.UI.SnowAccumulationRate = 7
 				case "8×":
 					cfg.UI.SnowAccumulationRate = 8
 				default:

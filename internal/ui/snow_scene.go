@@ -502,10 +502,10 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 		rb.snowPaintCell(cells, rb.SnowmanX+2, bellyY, "╲", snowBall)
 	}
 	if rb.SnowmanPhase >= snowmanPhaseHat && scarfY >= 1 {
-		rb.snowPaintLine(cells, rb.SnowmanX-2, scarfY, "≋≋≋", scarfSt)
+		rb.snowPaintLine(cells, rb.SnowmanX-1, scarfY, "≋≋≋", scarfSt)
 	}
 	if rb.SnowmanPhase >= snowmanPhaseHat && hatBrimY >= 1 {
-		rb.snowPaintLine(cells, rb.SnowmanX-2, hatBrimY, "───", hatSt)
+		rb.snowPaintLine(cells, rb.SnowmanX-1, hatBrimY, "───", hatSt)
 	}
 	if rb.SnowmanPhase >= snowmanPhaseHat && hatTopY >= 1 {
 		rb.snowPaintCell(cells, rb.SnowmanX, hatTopY, "█", hatSt)
