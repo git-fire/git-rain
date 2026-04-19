@@ -45,11 +45,11 @@ func TestMeasuredListCapacityFitsWindow_table(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		model     RepoSelectorModel
-		measure   func(RepoSelectorModel) int
-		height    func(RepoSelectorModel, int) int
-		maxList   int
+		name    string
+		model   RepoSelectorModel
+		measure func(RepoSelectorModel) int
+		height  func(RepoSelectorModel, int) int
+		maxList int
 	}{
 		{
 			name: "main view",

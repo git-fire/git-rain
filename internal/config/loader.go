@@ -69,6 +69,8 @@ func LoadWithOptions(opts LoadOptions) (*Config, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	cfg.UI.RainPanelSize = NormalizeRainPanelSize(cfg.UI.RainPanelSize)
+
 	return &cfg, nil
 }
 
@@ -92,6 +94,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("ui.show_rain_animation", defaults.UI.ShowRainAnimation)
 	v.SetDefault("ui.rain_animation_mode", defaults.UI.RainAnimationMode)
+	v.SetDefault("ui.rain_panel_size", defaults.UI.RainPanelSize)
 	v.SetDefault("ui.show_startup_quote", defaults.UI.ShowStartupQuote)
 	v.SetDefault("ui.startup_quote_behavior", defaults.UI.StartupQuoteBehavior)
 	v.SetDefault("ui.startup_quote_interval_sec", defaults.UI.StartupQuoteIntervalSec)

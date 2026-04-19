@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -283,5 +284,67 @@ func TestGardenBackgroundFinishesStorm(t *testing.T) {
 	}
 	if len(rb.Drops) != 0 {
 		t.Fatalf("expected drops cleared, got %d", len(rb.Drops))
+	}
+}
+
+func TestRenderRainWaveSnowWidth(t *testing.T) {
+	const width = 40
+	s := RenderRainWave(width, 3, config.UIRainAnimationSnow, false)
+	if got := lipgloss.Width(s); got != width {
+		t.Fatalf("lipgloss.Width(RenderRainWave snow) = %d, want %d", got, width)
+	}
+}
+
+func TestRainBackgroundSnowRenderLineWidths(t *testing.T) {
+	const w, h = 32, 8
+	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
+	rand.Seed(42)
+	for i := 0; i < 50; i++ {
+		rb.Update()
+	}
+	out := rb.Render()
+	lines := strings.Split(out, "\n")
+	if len(lines) != h {
+		t.Fatalf("expected %d lines, got %d", h, len(lines))
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != w {
+			t.Fatalf("line %d: lipgloss.Width = %d, want %d\n%q", i, got, w, line)
+		}
+	}
+}
+
+func TestSnowGroundDepthIncreases(t *testing.T) {
+	const w, h = 24, 6
+	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
+	rand.Seed(7)
+	sum0 := 0
+	for _, v := range rb.SnowGround {
+		sum0 += v
+	}
+	for i := 0; i < 400; i++ {
+		rb.Update()
+	}
+	sum1 := 0
+	for _, v := range rb.SnowGround {
+		sum1 += v
+	}
+	if sum1 <= sum0 {
+		t.Fatalf("expected snow ground accumulation, sum0=%d sum1=%d", sum0, sum1)
+	}
+}
+
+func TestSnowmanProgressesWithLandings(t *testing.T) {
+	const w, h = 40, 8
+	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
+	rand.Seed(1)
+	rb.SnowmanPhase = snowmanPhaseBaseDot
+	rb.SnowmanBuild = 0
+	for i := 0; i < 30; i++ {
+		rb.snowNoteFlakeLand(rb.SnowmanX)
+	}
+	rb.snowAdvanceScene()
+	if rb.SnowmanPhase == snowmanPhaseBaseDot {
+		t.Fatal("expected snowman phase to advance after landings near anchor")
 	}
 }

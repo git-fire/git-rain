@@ -42,6 +42,12 @@ var configRows = []configRow{
 		config.UIRainAnimationAdvanced,
 		config.UIRainAnimationMatrix,
 		config.UIRainAnimationGarden,
+		config.UIRainAnimationSnow,
+	}},
+	{label: "Rain panel size", kind: configRowEnum, options: []string{
+		config.UIRainPanelCompact,
+		config.UIRainPanelComfortable,
+		config.UIRainPanelTall,
 	}},
 	{label: "Show flavor quotes", kind: configRowBool},
 	{label: "Flavor quote behavior", kind: configRowEnum, options: []string{
@@ -58,8 +64,12 @@ var configRows = []configRow{
 	{label: "Custom hex palette", kind: configRowComingSoon},
 }
 
+// firstGardenVisibleRow is the visible index of the first garden-only row
+// (after "Rain animation mode" and "Rain panel size").
+const firstGardenVisibleRow = 6
+
 // Garden settings rows appear in the menu only when rain mode is garden,
-// directly under "Rain animation mode" (see logicalRowIndex).
+// directly under "Rain panel size" (see logicalRowIndex).
 var gardenSettingsConfigRows = []configRow{
 	{label: "Garden growth pace", kind: configRowEnum, options: []string{"calm", "normal", "fast"}},
 	{label: "Garden seed rate", kind: configRowEnum, options: []string{"rare", "normal", "often"}},
@@ -84,11 +94,11 @@ func logicalRowIndex(visibleI int, cfg *config.Config) int {
 	if g == 0 {
 		return visibleI
 	}
-	if visibleI < 5 {
+	if visibleI < firstGardenVisibleRow {
 		return visibleI
 	}
-	if visibleI < 5+g {
-		return len(configRows) + (visibleI - 5)
+	if visibleI < firstGardenVisibleRow+g {
+		return len(configRows) + (visibleI - firstGardenVisibleRow)
 	}
 	return visibleI - g
 }
@@ -194,28 +204,30 @@ func configRowValue(visibleI int, cfg *config.Config) string {
 		}
 		return cfg.UI.RainAnimationMode
 	case 5:
+		return config.NormalizeRainPanelSize(cfg.UI.RainPanelSize)
+	case 6:
 		if cfg.UI.ShowStartupQuote {
 			return "true"
 		}
 		return "false"
-	case 6:
-		return cfg.UI.StartupQuoteBehavior
 	case 7:
-		return strconv.Itoa(cfg.UI.StartupQuoteIntervalSec)
+		return cfg.UI.StartupQuoteBehavior
 	case 8:
+		return strconv.Itoa(cfg.UI.StartupQuoteIntervalSec)
+	case 9:
 		if cfg.UI.RainTickMS <= 0 {
 			return strconv.Itoa(config.DefaultUIRainTickMS)
 		}
 		return strconv.Itoa(cfg.UI.RainTickMS)
-	case 9:
-		return cfg.UI.ColorProfile
 	case 10:
-		return "coming soon"
+		return cfg.UI.ColorProfile
 	case 11:
-		return gardenGrowthPaceLabel(cfg)
+		return "coming soon"
 	case 12:
-		return gardenSeedRateLabel(cfg)
+		return gardenGrowthPaceLabel(cfg)
 	case 13:
+		return gardenSeedRateLabel(cfg)
+	case 14:
 		return gardenOffspringLabel(cfg)
 	}
 	return ""
@@ -234,7 +246,7 @@ func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 			cfg.Global.DisableScan = !cfg.Global.DisableScan
 		case 3:
 			cfg.UI.ShowRainAnimation = !cfg.UI.ShowRainAnimation
-		case 5:
+		case 6:
 			cfg.UI.ShowStartupQuote = !cfg.UI.ShowStartupQuote
 		}
 	case configRowEnum:
@@ -258,18 +270,20 @@ func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 			}
 		case 4:
 			cfg.UI.RainAnimationMode = opts[idx]
-		case 6:
-			cfg.UI.StartupQuoteBehavior = opts[idx]
+		case 5:
+			cfg.UI.RainPanelSize = opts[idx]
 		case 7:
+			cfg.UI.StartupQuoteBehavior = opts[idx]
+		case 8:
 			sec, err := strconv.Atoi(opts[idx])
 			if err == nil && sec > 0 {
 				cfg.UI.StartupQuoteIntervalSec = sec
 			}
-		case 8:
-			applyRainTickChange(cfg, opts, dir)
 		case 9:
+			applyRainTickChange(cfg, opts, dir)
+		case 10:
 			cfg.UI.ColorProfile = opts[idx]
-		case 11:
+		case 12:
 			switch opts[idx] {
 			case "calm":
 				cfg.UI.GardenGrowthPace = 1.32
@@ -278,7 +292,7 @@ func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 			default:
 				cfg.UI.GardenGrowthPace = 0
 			}
-		case 12:
+		case 13:
 			switch opts[idx] {
 			case "rare":
 				cfg.UI.GardenSeedRate = 0.06
@@ -287,7 +301,7 @@ func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 			default:
 				cfg.UI.GardenSeedRate = 0
 			}
-		case 13:
+		case 14:
 			switch opts[idx] {
 			case "few":
 				cfg.UI.GardenOffspringMin = 1
@@ -497,9 +511,10 @@ func (m RepoSelectorModel) syncRuntimeFromConfig(cmds []tea.Cmd) (RepoSelectorMo
 	m.rainTick = time.Duration(m.cfg.UI.RainTickMS) * time.Millisecond
 	m.rainAnimationMode = m.cfg.UI.RainAnimationMode
 	if m.rainBg != nil {
-		bgW, h := m.rainBg.Width, m.rainBg.Height
-		if m.rainBg.Mode != m.rainAnimationMode {
-			m.rainBg = NewRainBackground(bgW, h, m.rainAnimationMode)
+		bgW := resolveRainBackgroundWidth(m.windowWidth)
+		wantH := m.clampedRainBackgroundHeight()
+		if m.rainBg.Mode != m.rainAnimationMode || m.rainBg.Width != bgW || m.rainBg.Height != wantH {
+			m.rainBg = NewRainBackground(bgW, wantH, m.rainAnimationMode)
 		} else {
 			m.rainBg.Mode = m.rainAnimationMode
 		}

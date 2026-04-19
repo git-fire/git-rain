@@ -186,13 +186,10 @@ func NewRepoSelectorModel(repos []git.Repository, reg *registry.Registry, regPat
 	s.Style = lipgloss.NewStyle().Foreground(activeProfile().boxBorder)
 
 	animMode := config.UIRainAnimationBasic
-	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
-
-	return RepoSelectorModel{
+	base := RepoSelectorModel{
 		repos:                repos,
 		cursor:               0,
 		selected:             selected,
-		rainBg:               rainBg,
 		spinner:              s,
 		windowWidth:          80,
 		windowHeight:         40,
@@ -209,6 +206,13 @@ func NewRepoSelectorModel(repos []git.Repository, reg *registry.Registry, regPat
 		startupQuoteVisible:  true,
 		quoteTickActive:      true,
 	}
+	defCfg := config.DefaultConfig()
+	base.cfg = &defCfg
+	rainH := base.clampedRainBackgroundHeight()
+	base.rainBg = NewRainBackground(resolveRainBackgroundWidth(80), rainH, animMode)
+	base.applyGardenTuning(base.rainBg)
+	base.cfg = nil
+	return base
 }
 
 // NewRepoSelectorModelStream creates a model in streaming mode.
@@ -256,14 +260,10 @@ func NewRepoSelectorModelStream(
 	}
 
 	bgW := resolveRainBackgroundWidth(80)
-	rainBg := NewRainBackground(bgW, 5, animMode)
-	rainBg.SetGardenTuning(gardenTuningFromConfig(cfg, rainTickMS, bgW))
-
-	return RepoSelectorModel{
+	base := RepoSelectorModel{
 		repos:                nil,
 		cursor:               0,
 		selected:             make(map[int]bool),
-		rainBg:               rainBg,
 		spinner:              s,
 		windowWidth:          80,
 		windowHeight:         40,
@@ -287,6 +287,11 @@ func NewRepoSelectorModelStream(
 		startupQuoteVisible:  showStartupQuote,
 		quoteTickActive:      showStartupQuote && startupQuoteIntervalSec > 0,
 	}
+	rainH := base.clampedRainBackgroundHeight()
+	rainBg := NewRainBackground(bgW, rainH, animMode)
+	rainBg.SetGardenTuning(gardenTuningFromConfig(cfg, rainTickMS, bgW))
+	base.rainBg = rainBg
+	return base
 }
 
 func (m RepoSelectorModel) Init() tea.Cmd {
@@ -338,7 +343,8 @@ func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowWidth = msg.Width
 		m.windowHeight = msg.Height
 		bgW := resolveRainBackgroundWidth(msg.Width)
-		m.rainBg = NewRainBackground(bgW, 5, m.rainAnimationMode)
+		rainH := m.clampedRainBackgroundHeight()
+		m.rainBg = NewRainBackground(bgW, rainH, m.rainAnimationMode)
 		m.applyGardenTuning(m.rainBg)
 		m = m.withClampedPathScroll()
 		m.scrollOffset = m.clampScroll(m.scrollOffset, m.cursor, m.repoListVisibleCount(), len(m.repos))
@@ -546,8 +552,18 @@ func (m RepoSelectorModel) rainVisible() bool {
 	if !m.showRain {
 		return false
 	}
-	// Need at least enough rows: rain bg (5) + wave (1) + blank (1) + title (1) + list (1) = 9
-	return m.windowHeight >= 9
+	if m.rainBg == nil {
+		return false
+	}
+	mainCap := m.mainViewMeasuredRepoListCapacity()
+	if m.mainViewPanelOuterHeight(mainCap) > m.windowHeight || mainCap < 1 {
+		return false
+	}
+	igCap := m.ignoredMeasuredListCapacity()
+	if m.ignoredViewPanelOuterHeight(igCap) > m.windowHeight || igCap < 1 {
+		return false
+	}
+	return true
 }
 
 func (m RepoSelectorModel) quoteVisible() bool {
@@ -713,6 +729,43 @@ func resolveRainBackgroundWidth(terminalWidth int) int {
 		w = 1
 	}
 	return w
+}
+
+func rainPanelPresetRowsFromCfg(cfg *config.Config) int {
+	if cfg == nil {
+		return config.RainPanelRows(config.UIRainPanelComfortable)
+	}
+	return config.RainPanelRows(cfg.UI.RainPanelSize)
+}
+
+// rainPanelFitsHeight reports whether the bordered main and ignored panels fit
+// in the window when the animation canvas uses height h.
+func (m RepoSelectorModel) rainPanelFitsHeight(h int) bool {
+	bgW := resolveRainBackgroundWidth(m.windowWidth)
+	dup := m
+	dup.rainBg = NewRainBackground(bgW, h, m.rainAnimationMode)
+	dup.applyGardenTuning(dup.rainBg)
+	mainCap := dup.mainViewMeasuredRepoListCapacity()
+	if dup.mainViewPanelOuterHeight(mainCap) > dup.windowHeight || mainCap < 1 {
+		return false
+	}
+	igCap := dup.ignoredMeasuredListCapacity()
+	if dup.ignoredViewPanelOuterHeight(igCap) > dup.windowHeight || igCap < 1 {
+		return false
+	}
+	return true
+}
+
+// clampedRainBackgroundHeight returns the animation row count from config
+// presets, reduced if necessary so the TUI panel fits the terminal.
+func (m RepoSelectorModel) clampedRainBackgroundHeight() int {
+	preset := rainPanelPresetRowsFromCfg(m.cfg)
+	for h := preset; h >= 3; h-- {
+		if m.rainPanelFitsHeight(h) {
+			return h
+		}
+	}
+	return 3
 }
 
 func (m RepoSelectorModel) renderRainWaveStrip(width int) string {

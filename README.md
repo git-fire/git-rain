@@ -357,6 +357,24 @@ rain_animation_mode = "garden"
 halve growth speed, or `0.5` to roughly double it. The other knobs trade
 visual density (more or fewer seeds, longer or shorter blooms) for clarity.
 
+### Snow mode and rain panel size
+
+`rain_animation_mode = "snow"` uses the same animation strip for a winter scene:
+falling snowflakes, snow that keeps piling on the ground, a small log cabin
+with chimney smoke and lit windows, occasional evergreen trees that pick up
+frost, and a snowman that grows in stages (two spheres, then face, pipe, and
+top hat).
+
+`rain_panel_size` controls how many terminal rows the animation canvas uses:
+`compact` (5), `comfortable` (8, default), or `tall` (11). The TUI clamps the
+height automatically so the bordered panel still fits short terminals.
+
+```toml
+[ui]
+rain_animation_mode = "snow"
+rain_panel_size = "comfortable"
+```
+
 ### Config file, locks, and crashes
 
 **Registry (`repos.toml`)** — Writes use a cross-process lock file (`repos.toml.lock`), atomic replace, and stale-lock detection (owner PID). If a process dies mid-run you may still see a leftover lock: the CLI prompts to remove it when safe, or you can use **`--force-unlock-registry`** in scripts. This is the same class of “stale lock / don’t corrupt the database” problem as other multi-repo tools; treat lock removal like any other forced unlock — only when you are sure no other `git-rain` is running.

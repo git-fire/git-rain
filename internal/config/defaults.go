@@ -37,6 +37,7 @@ func DefaultConfig() Config {
 		UI: UIConfig{
 			ShowRainAnimation:       true,
 			RainAnimationMode:       UIRainAnimationBasic,
+			RainPanelSize:           UIRainPanelComfortable,
 			ShowStartupQuote:        true,
 			StartupQuoteBehavior:    UIQuoteBehaviorRefresh,
 			StartupQuoteIntervalSec: DefaultUIStartupQuoteIntervalSec,
@@ -114,9 +115,13 @@ mainline_patterns = []
 show_rain_animation = true
 
 # Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-# "matrix" (falling code characters), or "garden" (seeds bloom into a meadow,
-# then the rain stops and the sun comes out)
+# "matrix" (falling code characters), "garden" (seeds bloom into a meadow,
+# then the rain stops and the sun comes out), or "snow" (winter scene)
 rain_animation_mode = "basic"
+
+# Animation canvas height: "compact" (5 rows), "comfortable" (8), or "tall" (11).
+# Clamped automatically if the terminal is short.
+rain_panel_size = "comfortable"
 
 # Show flavor quotes in the TUI banner
 show_startup_quote = true

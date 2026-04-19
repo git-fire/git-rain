@@ -1,6 +1,8 @@
 // Package config defines the git-rain configuration schema and related constants.
 package config
 
+import "strings"
+
 // Config represents the complete git-rain configuration
 type Config struct {
 	Global GlobalConfig `mapstructure:"global" toml:"global"`
@@ -57,9 +59,14 @@ type UIConfig struct {
 	ShowRainAnimation bool `mapstructure:"show_rain_animation" toml:"show_rain_animation"`
 
 	// Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-	// "matrix" (falling code glyphs in the same column pattern), or "garden"
-	// (seeds, rain, growth, then sun).
+	// "matrix" (falling code glyphs in the same column pattern), "garden"
+	// (seeds, rain, growth, then sun), or "snow" (winter scene).
 	RainAnimationMode string `mapstructure:"rain_animation_mode" toml:"rain_animation_mode"`
+
+	// RainPanelSize is how tall the animation canvas is in the TUI: "compact",
+	// "comfortable", or "tall". The runtime clamps to the terminal so the panel
+	// still fits (see RainPanelRows).
+	RainPanelSize string `mapstructure:"rain_panel_size" toml:"rain_panel_size"`
 
 	// Show flavor quotes: TUI banner plus CLI motivation lines.
 	ShowStartupQuote bool `mapstructure:"show_startup_quote" toml:"show_startup_quote"`
@@ -127,7 +134,37 @@ const (
 	UIRainAnimationAdvanced = "advanced"
 	UIRainAnimationMatrix   = "matrix"
 	UIRainAnimationGarden   = "garden"
+	UIRainAnimationSnow     = "snow"
+
+	UIRainPanelCompact     = "compact"
+	UIRainPanelComfortable = "comfortable"
+	UIRainPanelTall        = "tall"
 )
+
+// RainPanelRows returns the target animation height in terminal rows for a
+// panel size preset. Unknown or empty values use comfortable.
+func RainPanelRows(preset string) int {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case UIRainPanelCompact:
+		return 5
+	case UIRainPanelTall:
+		return 11
+	default:
+		return 8
+	}
+}
+
+// NormalizeRainPanelSize returns a canonical preset name.
+func NormalizeRainPanelSize(preset string) string {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case UIRainPanelCompact:
+		return UIRainPanelCompact
+	case UIRainPanelTall:
+		return UIRainPanelTall
+	default:
+		return UIRainPanelComfortable
+	}
+}
 
 // UIColorProfiles returns valid built-in UI color profile names.
 func UIColorProfiles() []string {
