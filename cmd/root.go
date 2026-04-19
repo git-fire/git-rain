@@ -23,6 +23,7 @@ import (
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
 	"github.com/git-rain/git-rain/internal/safety"
+	"github.com/git-rain/git-rain/internal/sessionlog"
 	"github.com/git-rain/git-rain/internal/ui"
 )
 
@@ -508,6 +509,11 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 
 	userCfgDir, _ := config.UserGitRainDir()
 	cfgPath := filepath.Join(userCfgDir, "config.toml")
+	logger, err := sessionlog.NewLogger(sessionlog.DefaultLogDir())
+	if err != nil {
+		return fmt.Errorf("init rain logger: %w", err)
+	}
+	defer func() { _ = logger.Close() }()
 
 	selected, err := ui.RunRepoSelectorStream(
 		tuiRepoChan,
@@ -518,6 +524,7 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 		cfgPath,
 		reg,
 		regPath,
+		logger,
 	)
 
 	// Cancel scan first so filepath walk and in-flight git subprocesses unwind.

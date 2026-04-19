@@ -52,13 +52,43 @@ func (m RepoSelectorModel) mainViewFooterBlock() string {
 	helpText := "\n" +
 		"Controls:\n" +
 		"  ↑/k, ↓/j  Navigate  |  ←/→  Scroll path  |  space  Toggle selection\n" +
-		"  m  Change mode  |  x  Ignore  |  a  Select all  |  n  Select none  |  r  Toggle rain\n" +
+		"  m  Change mode  |  x  Ignore  |  a  Select all  |  n  Select none  |  r  Toggle rain  |  Shift+L  Toggle log panel  |  e  Export logs\n" +
 		"  i  View ignored  |  " + configHint + "enter  Confirm  |  q  Quit\n\n" +
 		"Icons:\n" +
 		"  💧 = Has uncommitted changes\n" +
 		"  [✓] = Selected  |  [ ] = Not selected  |  ‹›  = path scrollable"
 	var s strings.Builder
 	s.WriteString(helpStyle.MaxWidth(cw).Render(helpText))
+	statusStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(activeProfile().scanBorder).
+		Padding(0, 1)
+	statusLine := m.statusIcon + " " + m.statusLine
+	if m.logExportPath != "" {
+		statusLine += "  |  last export: " + m.logExportPath
+	}
+	s.WriteString("\n")
+	s.WriteString(statusStyle.MaxWidth(cw).Render(statusLine))
+	if m.showLogPanel {
+		start := 0
+		if len(m.logEntries) > 8 {
+			start = len(m.logEntries) - 8
+		}
+		lines := make([]string, 0, len(m.logEntries)-start)
+		for _, entry := range m.logEntries[start:] {
+			lines = append(lines, fmt.Sprintf("%s [%s] %s", entry.Timestamp.Format("15:04:05"), entry.Level, entry.Description))
+		}
+		panelBody := strings.Join(lines, "\n")
+		if panelBody == "" {
+			panelBody = "(no events yet)"
+		}
+		panelStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(activeProfile().scanBorder).
+			Padding(0, 1)
+		s.WriteString("\n")
+		s.WriteString(panelStyle.MaxWidth(cw).Render(panelBody))
+	}
 	if m.scanChan != nil || m.scanDisabled {
 		s.WriteString("\n")
 		s.WriteString(m.renderScanStatus())
