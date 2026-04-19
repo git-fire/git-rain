@@ -123,6 +123,36 @@ func TestGardenSkySeedsThrottleByMaturityAndFlight(t *testing.T) {
 	}
 }
 
+func TestAggressivePresetLowersWallClockStretch(t *testing.T) {
+	slow := ResolveGardenTuning(GardenTuning{})
+	applyGardenStormWallClockScale(&slow, nil, 150, 56)
+	fast := ResolveGardenTuning(GardenTuning{})
+	cfg := &config.Config{}
+	cfg.UI.GardenGrowthPace = 0.78
+	cfg.UI.GardenSeedRate = 0.15
+	applyGardenStormWallClockScale(&fast, cfg, 150, 56)
+	if fast.PlantedToSproutMoisture >= slow.PlantedToSproutMoisture {
+		t.Fatalf("fast+often should reduce wall-clock moisture vs default, slow=%d fast=%d",
+			slow.PlantedToSproutMoisture, fast.PlantedToSproutMoisture)
+	}
+}
+
+func TestGardenPresetAggressionFastOftenMany(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.UI.GardenGrowthPace = 0.78
+	cfg.UI.GardenSeedRate = 0.15
+	cfg.UI.GardenOffspringMin = 3
+	cfg.UI.GardenOffspringMax = 4
+	if g := gardenPresetAggression(cfg); g < 0.99 {
+		t.Fatalf("expected max aggression for fast+often+many, got %v", g)
+	}
+	cfg2 := &config.Config{}
+	cfg2.UI.GardenSeedRate = 0.15
+	if g := gardenPresetAggression(cfg2); g < 0.45 || g > 0.6 {
+		t.Fatalf("expected mid aggression for often-only, got %v", g)
+	}
+}
+
 func TestApplyGardenStormWallClockScaleWiderAndRareSlower(t *testing.T) {
 	cfgNormal := &config.Config{}
 	narrow := ResolveGardenTuning(GardenTuning{})

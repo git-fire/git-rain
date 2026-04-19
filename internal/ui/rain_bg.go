@@ -121,6 +121,12 @@ type GardenTuning struct {
 	OffspringMin    int
 	OffspringMax    int
 	OffspringSpread int
+
+	// PresetAggression is 0..1 from the settings TUI (fast growth, often seeds,
+	// many offspring). Higher values ease wall-clock slowdown and relax early
+	// sky-seed throttling so "power" presets are not smothered by calm-default
+	// pacing. Set only from gardenTuningFromConfig; otherwise 0.
+	PresetAggression float64
 }
 
 // DefaultGardenTuning returns the built-in pacing constants chosen so the
@@ -192,7 +198,38 @@ func ResolveGardenTuning(t GardenTuning) GardenTuning {
 	if t.RainAbsorbExtraChance > 1 {
 		t.RainAbsorbExtraChance = 1
 	}
+	if t.PresetAggression < 0 {
+		t.PresetAggression = 0
+	}
+	if t.PresetAggression > 1 {
+		t.PresetAggression = 1
+	}
 	return t
+}
+
+// gardenPresetAggression maps the same TUI knobs as config_view into [0,1]:
+// higher when the user asks for a busier garden (fast + often + many).
+func gardenPresetAggression(cfg *config.Config) float64 {
+	if cfg == nil {
+		return 0
+	}
+	s := cfg.UI.GardenSeedRate
+	p := cfg.UI.GardenGrowthPace
+	often := s > 0.12
+	fast := p > 0 && p < 0.9
+	manyOff := cfg.UI.GardenOffspringMax >= 4 && cfg.UI.GardenOffspringMin >= 3
+	switch {
+	case often && fast && manyOff:
+		return 1.0
+	case often && fast:
+		return 0.9
+	case often || fast:
+		return 0.52
+	case manyOff:
+		return 0.32
+	default:
+		return 0
+	}
 }
 
 // gardenTargetStormWallSeconds picks a storm-completion time budget from the
@@ -218,9 +255,9 @@ func gardenTargetStormWallSeconds(cfg *config.Config) float64 {
 	case calm:
 		return 60
 	case oftenSeed && fastPace:
-		return 26
+		return 16
 	case oftenSeed || fastPace:
-		return 36
+		return 28
 	default:
 		return 32
 	}
@@ -254,6 +291,17 @@ func applyGardenStormWallClockScale(t *GardenTuning, cfg *config.Config, rainTic
 	scale := targetFrames / refFrames
 	if scale < 1.0 {
 		scale = 1.0
+	}
+	// When the TUI asks for fast / often / many, do not smother those dials with
+	// the same storm-length multiplier we use for calm defaults.
+	ag := gardenPresetAggression(cfg)
+	if ag > 0 {
+		const maxEase = 0.9
+		damp := 1.0 - ag*maxEase
+		if damp < 0.07 {
+			damp = 0.07
+		}
+		scale = 1.0 + (scale-1.0)*damp
 	}
 	// Slightly extra stretch on the path to first bloom; sky seeds are capped
 	// separately, so moisture still needs headroom to feel gradual.
@@ -536,7 +584,18 @@ func (rb *RainBackground) gardenMaxFlyingSkySeeds(relief float64) int {
 		hi = 4
 	}
 	lo := max(1, hi/5)
-	cap := int(0.5 + float64(lo)+(float64(hi-lo))*relief)
+	ag := rb.Garden.PresetAggression
+	if ag < 0 {
+		ag = 0
+	}
+	if ag > 1 {
+		ag = 1
+	}
+	reliefEff := relief + ag*0.58
+	if reliefEff > 1 {
+		reliefEff = 1
+	}
+	cap := int(0.5 + float64(lo)+(float64(hi-lo))*reliefEff)
 	if cap < 1 {
 		cap = 1
 	}
@@ -559,7 +618,8 @@ func (rb *RainBackground) gardenSkySeedsForBatch(need int) int {
 	if rate <= 0 {
 		return 0
 	}
-	maxSeeds := int(0.5 + float64(rb.Width)*rate*0.20)
+	coef := 0.20 + rb.Garden.PresetAggression*0.32
+	maxSeeds := int(0.5 + float64(rb.Width)*rate*coef)
 	if maxSeeds < 1 {
 		maxSeeds = 1
 	}

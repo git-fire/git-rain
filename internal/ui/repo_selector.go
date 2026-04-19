@@ -755,6 +755,7 @@ func gardenTuningFromConfig(cfg *config.Config, rainTickMS, gardenWidth int) Gar
 		}
 	}
 	resolved := ResolveGardenTuning(t)
+	resolved.PresetAggression = gardenPresetAggression(cfg)
 	applyGardenStormWallClockScale(&resolved, cfg, rainTickMS, gardenWidth)
 	return resolved
 }
