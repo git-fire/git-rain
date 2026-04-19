@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"math/rand"
 	"strings"
 	"testing"
 
@@ -298,7 +297,6 @@ func TestRenderRainWaveSnowWidth(t *testing.T) {
 func TestRainBackgroundSnowRenderLineWidths(t *testing.T) {
 	const w, h = 32, 8
 	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
-	rand.Seed(42)
 	for i := 0; i < 50; i++ {
 		rb.Update()
 	}
@@ -318,7 +316,6 @@ func TestSnowGroundDepthIncreases(t *testing.T) {
 	const w, h = 24, 6
 	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
 	rb.SetSnowAccumPerLanding(4)
-	rand.Seed(7)
 	sum0 := 0
 	for _, v := range rb.SnowGround {
 		sum0 += v
@@ -338,7 +335,6 @@ func TestSnowGroundDepthIncreases(t *testing.T) {
 func TestSnowmanProgressesWithLandings(t *testing.T) {
 	const w, h = 40, 8
 	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
-	rand.Seed(1)
 	rb.SnowmanPhase = snowmanPhaseBaseDot
 	rb.SnowmanBuild = 0
 	for i := 0; i < 30; i++ {
