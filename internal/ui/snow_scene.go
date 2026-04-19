@@ -299,7 +299,11 @@ func (rb *RainBackground) snowFootprintFree(x, w int) bool {
 	if rb.SnowmanPhase >= snowmanPhaseBaseLarge {
 		sL, sR = rb.SnowmanX-5, rb.SnowmanX+5
 	}
-	if rb.SnowmanPhase != snowmanPhaseNone && right > sL && left < sR {
+	excludeSnowman := rb.SnowmanPhase != snowmanPhaseNone
+	if rb.SnowmanPhase == snowmanPhaseNone && rb.Width >= 18 {
+		excludeSnowman = true
+	}
+	if excludeSnowman && right > sL && left < sR {
 		return false
 	}
 	return true

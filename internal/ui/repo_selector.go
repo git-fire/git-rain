@@ -288,9 +288,8 @@ func NewRepoSelectorModelStream(
 		quoteTickActive:      showStartupQuote && startupQuoteIntervalSec > 0,
 	}
 	rainH := base.clampedRainBackgroundHeight()
-	rainBg := NewRainBackground(bgW, rainH, animMode)
-	rainBg.SetGardenTuning(gardenTuningFromConfig(cfg, rainTickMS, bgW))
-	base.rainBg = rainBg
+	base.rainBg = NewRainBackground(bgW, rainH, animMode)
+	base.applyGardenTuning(base.rainBg)
 	return base
 }
 
