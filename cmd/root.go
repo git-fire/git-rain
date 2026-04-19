@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mattn/go-isatty"
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
@@ -625,22 +624,6 @@ func scanProgressPathMaxLen(prefix string) int {
 		return fallback
 	}
 	return dynamic
-}
-
-// stdinInteractiveOK reports whether stdin is suitable for blocking prompts.
-// Always false under CI / known automation env vars or GIT_RAIN_NON_INTERACTIVE.
-func stdinInteractiveOK() bool {
-	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
-		return false
-	}
-	if os.Getenv("GIT_RAIN_NON_INTERACTIVE") != "" {
-		return false
-	}
-	if _, err := os.Stdin.Stat(); err != nil {
-		return false
-	}
-	fd := os.Stdin.Fd()
-	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }
 
 // runRainDefaultStream is the default live-run path for `git-rain` (no flags
