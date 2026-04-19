@@ -287,12 +287,13 @@ func (rb *RainBackground) snowPaintCell(cells []string, x, y int, ch string, st 
 }
 
 func (rb *RainBackground) snowPaintLine(cells []string, left, y int, line string, st lipgloss.Style) {
-	for i, r := range line {
-		x := left + i
-		if x < 0 || x >= rb.Width {
-			continue
+	col := 0
+	for _, r := range line {
+		x := left + col
+		if x >= 0 && x < rb.Width {
+			rb.snowPaintCell(cells, x, y, string(r), st)
 		}
-		rb.snowPaintCell(cells, x, y, string(r), st)
+		col++
 	}
 }
 
