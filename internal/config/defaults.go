@@ -114,12 +114,8 @@ mainline_patterns = []
 show_rain_animation = true
 
 # Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-# "garden" (advanced layout + garden pacing), or "matrix" (falling code characters)
+# or "matrix" (falling code characters)
 rain_animation_mode = "basic"
-
-# Garden-only (ignored unless rain_animation_mode = "garden"):
-# garden_bloom_preset = "calm"   # calm | normal | fast
-# garden_moisture_cap = "off"    # off | soft | tight
 
 # Show flavor quotes in the TUI banner
 show_startup_quote = true

@@ -186,7 +186,7 @@ func NewRepoSelectorModel(repos []git.Repository, reg *registry.Registry, regPat
 	s.Style = lipgloss.NewStyle().Foreground(activeProfile().boxBorder)
 
 	animMode := config.UIRainAnimationBasic
-	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode, nil)
+	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
 
 	return RepoSelectorModel{
 		repos:                repos,
@@ -255,7 +255,7 @@ func NewRepoSelectorModelStream(
 		}
 	}
 
-	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode, cfg)
+	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
 
 	return RepoSelectorModel{
 		repos:                nil,
@@ -336,17 +336,14 @@ func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowWidth = msg.Width
 		m.windowHeight = msg.Height
 		bgW := resolveRainBackgroundWidth(msg.Width)
-		m.rainBg = NewRainBackground(bgW, 5, m.rainAnimationMode, m.cfg)
+		m.rainBg = NewRainBackground(bgW, 5, m.rainAnimationMode)
 		m = m.withClampedPathScroll()
 		m.scrollOffset = m.clampScroll(m.scrollOffset, m.cursor, m.repoListVisibleCount(), len(m.repos))
 		m.ignoredScrollOffset = m.clampScroll(m.ignoredScrollOffset, m.ignoredCursor, m.ignoredListVisibleCount(), len(m.ignoredEntries))
 
 	case tickMsg:
 		m.frameIndex = (m.frameIndex + 1) % len(rainFrames)
-		// Advance rain whenever it is enabled — rainVisible() only controls whether
-		// the layout has room to paint it; freezing Update() made growth look dead
-		// on shorter terminals or when the header was temporarily hidden.
-		if m.showRain && m.rainBg != nil {
+		if m.rainVisible() {
 			m.rainBg.Update()
 		}
 		return m, tickCmd(m.rainTick)
