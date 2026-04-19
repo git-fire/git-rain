@@ -537,7 +537,7 @@ func (rb *RainBackground) gardenSeedsInFlight() int {
 // the global flying-seed ceiling so young plants see few sky seeds, and mature
 // meadows can carry more falling seeds.
 func (rb *RainBackground) gardenSeedThrottleRelief() float64 {
-	if rb.GardenPlots == nil || len(rb.GardenPlots) == 0 {
+	if len(rb.GardenPlots) == 0 {
 		return 0
 	}
 	var sum float64
@@ -595,14 +595,14 @@ func (rb *RainBackground) gardenMaxFlyingSkySeeds(relief float64) int {
 	if reliefEff > 1 {
 		reliefEff = 1
 	}
-	cap := int(0.5 + float64(lo)+(float64(hi-lo))*reliefEff)
-	if cap < 1 {
-		cap = 1
+	ceiling := int(0.5 + float64(lo)+(float64(hi-lo))*reliefEff)
+	if ceiling < 1 {
+		ceiling = 1
 	}
-	if cap > hi {
-		cap = hi
+	if ceiling > hi {
+		ceiling = hi
 	}
-	return cap
+	return ceiling
 }
 
 // gardenSkySeedsForBatch returns how many of 'need' new sky drops should be
@@ -727,7 +727,7 @@ func (rb *RainBackground) Update() {
 			rb.Flowers[p.X].drops++
 		}
 
-		if rb.Mode == config.UIRainAnimationGarden && p.Y >= maxDropY && rb.GardenPlots != nil && p.X >= 0 && p.X < len(rb.GardenPlots) {
+		if rb.Mode == config.UIRainAnimationGarden && p.Y >= maxDropY && p.Y < rb.Height && rb.GardenPlots != nil && p.X >= 0 && p.X < len(rb.GardenPlots) {
 			g := &rb.GardenPlots[p.X]
 			if p.IsSeed {
 				if g.stage == gardenStageNone {
@@ -749,6 +749,7 @@ func (rb *RainBackground) Update() {
 					rb.gardenWaterPlot(g)
 				}
 			}
+			p.Age = p.MaxAge
 		}
 	}
 
@@ -762,7 +763,7 @@ func (rb *RainBackground) Update() {
 	rb.Drops = alive
 
 	// Spawn new drops to maintain count
-	if rb.Width > 0 && rb.Height > 0 && !(rb.Mode == config.UIRainAnimationGarden && rb.GardenSunny) {
+	if rb.Width > 0 && rb.Height > 0 && (rb.Mode != config.UIRainAnimationGarden || !rb.GardenSunny) {
 		targetCount := rb.Width * 2
 		if rb.Mode == config.UIRainAnimationGarden {
 			rb.spawnGardenMaintainingDrops(minY, targetCount)
@@ -812,9 +813,10 @@ func (rb *RainBackground) Render() string {
 		}
 	}
 
-	if rb.Mode == config.UIRainAnimationGarden {
+	switch rb.Mode {
+	case config.UIRainAnimationGarden:
 		rb.paintGardenOverlays(cells)
-	} else if rb.Mode == config.UIRainAnimationAdvanced {
+	case config.UIRainAnimationAdvanced:
 		// Top row: clouds
 		if len(rb.CloudRow) >= rb.Width {
 			cloudStyle := lipgloss.NewStyle().Foreground(activeProfile().cloudColor)
@@ -833,9 +835,7 @@ func (rb *RainBackground) Render() string {
 				}
 			}
 		}
-	}
-
-	if rb.Mode == config.UIRainAnimationMatrix {
+	case config.UIRainAnimationMatrix:
 		subY := matrixSubliminalBackgroundRow(rb.Height)
 		if subY >= 0 && subY < rb.Height && len(styles) > 0 {
 			dim := lipgloss.NewStyle().
@@ -1159,22 +1159,31 @@ func (rb *RainBackground) paintGardenOverlays(cells []string) {
 			case gardenStageWither:
 				st = witherStyle
 			case gardenStageEternal:
-				switch {
-				case k == 0:
+				switch k {
+				case 0:
 					st = stemStyle
-				case k == h-1:
+				case h - 1:
 					st = gardenFlowerStyle(g.flowerTint).Bold(true)
 				default:
 					st = leafStyle
 				}
 			default:
-				switch {
-				case g.stage == gardenStagePlanted && k == 0:
-					st = lipgloss.NewStyle().Foreground(lipgloss.Color("#5D4037"))
-				case k == 0 && g.stage >= gardenStageBud:
-					st = stemStyle
-				case k >= h-1 && g.stage >= gardenStageBud:
-					st = gardenFlowerStyle(g.flowerTint)
+				switch k {
+				case 0:
+					switch {
+					case g.stage == gardenStagePlanted:
+						st = lipgloss.NewStyle().Foreground(lipgloss.Color("#5D4037"))
+					case g.stage >= gardenStageBud:
+						st = stemStyle
+					default:
+						st = leafStyle
+					}
+				case h - 1:
+					if g.stage >= gardenStageBud {
+						st = gardenFlowerStyle(g.flowerTint)
+					} else {
+						st = leafStyle
+					}
 				default:
 					st = leafStyle
 				}

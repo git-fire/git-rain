@@ -343,7 +343,7 @@ in-app settings TUI — leave any unset (or set to `0`) to keep the default.
 [ui]
 rain_animation_mode = "garden"
 
-# garden_seed_rate            = 0.10   # fraction of new sky drops that fall as seeds (0..1)
+# garden_seed_rate            = 0.055  # fraction of new sky drops that fall as seeds (0..1)
 # garden_growth_pace          = 1.0    # multiplier on stage moisture thresholds (>1 = slower)
 # garden_bloom_duration_base  = 60     # min frames a flower lingers in full bloom
 # garden_bloom_duration_jitter = 40    # extra random frames added to bloom lifetime

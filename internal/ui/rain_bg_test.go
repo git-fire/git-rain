@@ -114,9 +114,10 @@ func TestGardenSkySeedsThrottleByMaturityAndFlight(t *testing.T) {
 	for i := range rb.GardenPlots {
 		rb.GardenPlots[i] = gardenPlot{stage: gardenStageBloom}
 	}
-	cap := rb.gardenMaxFlyingSkySeeds(rb.gardenSeedThrottleRelief())
-	if cap < 6 {
-		t.Fatalf("expected mature garden to allow a generous flying-seed cap, got %d", cap)
+	rb.Garden.SeedSpawnRate = 1.0
+	ceiling := rb.gardenMaxFlyingSkySeeds(rb.gardenSeedThrottleRelief())
+	if ceiling < 6 {
+		t.Fatalf("expected mature garden to allow a generous flying-seed cap, got %d", ceiling)
 	}
 	if k := rb.gardenSkySeedsForBatch(40); k < 1 {
 		t.Fatalf("expected at least one sky seed when mature and sky is clear, got %d", k)
