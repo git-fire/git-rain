@@ -58,11 +58,122 @@ var configRows = []configRow{
 	{label: "Custom hex palette", kind: configRowComingSoon},
 }
 
-func configRowValue(i int, cfg *config.Config) string {
+// Garden settings rows appear in the menu only when rain mode is garden,
+// directly under "Rain animation mode" (see logicalRowIndex).
+var gardenSettingsConfigRows = []configRow{
+	{label: "Garden growth pace", kind: configRowEnum, options: []string{"calm", "normal", "fast"}},
+	{label: "Garden seed rate", kind: configRowEnum, options: []string{"rare", "normal", "often"}},
+	{label: "Garden offspring", kind: configRowEnum, options: []string{"few", "default", "many"}},
+}
+
+func gardenSettingsRowCount(cfg *config.Config) int {
+	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.UI.RainAnimationMode), config.UIRainAnimationGarden) {
+		return len(gardenSettingsConfigRows)
+	}
+	return 0
+}
+
+func visibleConfigRowCount(cfg *config.Config) int {
+	return len(configRows) + gardenSettingsRowCount(cfg)
+}
+
+// logicalRowIndex maps a visible settings row to legacy ids 0..len(configRows)-1
+// or len(configRows)+k for garden-only rows.
+func logicalRowIndex(visibleI int, cfg *config.Config) int {
+	g := gardenSettingsRowCount(cfg)
+	if g == 0 {
+		return visibleI
+	}
+	if visibleI < 5 {
+		return visibleI
+	}
+	if visibleI < 5+g {
+		return len(configRows) + (visibleI - 5)
+	}
+	return visibleI - g
+}
+
+func configRowAt(visibleI int, cfg *config.Config) configRow {
+	li := logicalRowIndex(visibleI, cfg)
+	if li < len(configRows) {
+		return configRows[li]
+	}
+	gi := li - len(configRows)
+	if gi >= 0 && gi < len(gardenSettingsConfigRows) {
+		return gardenSettingsConfigRows[gi]
+	}
+	return configRows[len(configRows)-1]
+}
+
+func clampConfigCursor(cfg *config.Config, cur int) int {
+	n := visibleConfigRowCount(cfg)
+	if n <= 0 {
+		return 0
+	}
+	if cur >= n {
+		return n - 1
+	}
+	if cur < 0 {
+		return 0
+	}
+	return cur
+}
+
+func gardenGrowthPaceLabel(cfg *config.Config) string {
+	if cfg == nil {
+		return "normal"
+	}
+	p := cfg.UI.GardenGrowthPace
+	if p <= 0 {
+		return "normal"
+	}
+	if p >= 1.2 {
+		return "calm"
+	}
+	if p < 0.9 {
+		return "fast"
+	}
+	return "normal"
+}
+
+func gardenSeedRateLabel(cfg *config.Config) string {
+	if cfg == nil {
+		return "normal"
+	}
+	s := cfg.UI.GardenSeedRate
+	if s <= 0 {
+		return "normal"
+	}
+	if s < 0.08 {
+		return "rare"
+	}
+	if s > 0.12 {
+		return "often"
+	}
+	return "normal"
+}
+
+func gardenOffspringLabel(cfg *config.Config) string {
+	if cfg == nil {
+		return "default"
+	}
+	if cfg.UI.GardenOffspringMin <= 0 && cfg.UI.GardenOffspringMax <= 0 {
+		return "default"
+	}
+	if cfg.UI.GardenOffspringMin >= 3 {
+		return "many"
+	}
+	if cfg.UI.GardenOffspringMax <= 2 && cfg.UI.GardenOffspringMin > 0 {
+		return "few"
+	}
+	return "default"
+}
+
+func configRowValue(visibleI int, cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	switch i {
+	switch logicalRowIndex(visibleI, cfg) {
 	case 0:
 		return cfg.Global.DefaultMode
 	case 1:
@@ -100,18 +211,25 @@ func configRowValue(i int, cfg *config.Config) string {
 		return cfg.UI.ColorProfile
 	case 10:
 		return "coming soon"
+	case 11:
+		return gardenGrowthPaceLabel(cfg)
+	case 12:
+		return gardenSeedRateLabel(cfg)
+	case 13:
+		return gardenOffspringLabel(cfg)
 	}
 	return ""
 }
 
-func applyConfigChange(i int, cfg *config.Config, dir int) {
+func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 	if cfg == nil {
 		return
 	}
-	row := configRows[i]
+	row := configRowAt(visibleI, cfg)
+	li := logicalRowIndex(visibleI, cfg)
 	switch row.kind {
 	case configRowBool:
-		switch i {
+		switch li {
 		case 1:
 			cfg.Global.DisableScan = !cfg.Global.DisableScan
 		case 3:
@@ -121,7 +239,7 @@ func applyConfigChange(i int, cfg *config.Config, dir int) {
 		}
 	case configRowEnum:
 		opts := row.options
-		cur := configRowValue(i, cfg)
+		cur := configRowValue(visibleI, cfg)
 		idx := 0
 		for j, o := range opts {
 			if o == cur {
@@ -130,7 +248,7 @@ func applyConfigChange(i int, cfg *config.Config, dir int) {
 			}
 		}
 		idx = (idx + dir + len(opts)) % len(opts)
-		switch i {
+		switch li {
 		case 0:
 			cfg.Global.DefaultMode = opts[idx]
 		case 2:
@@ -151,6 +269,39 @@ func applyConfigChange(i int, cfg *config.Config, dir int) {
 			applyRainTickChange(cfg, opts, dir)
 		case 9:
 			cfg.UI.ColorProfile = opts[idx]
+		case 11:
+			switch opts[idx] {
+			case "calm":
+				cfg.UI.GardenGrowthPace = 1.32
+			case "fast":
+				cfg.UI.GardenGrowthPace = 0.78
+			default:
+				cfg.UI.GardenGrowthPace = 0
+			}
+		case 12:
+			switch opts[idx] {
+			case "rare":
+				cfg.UI.GardenSeedRate = 0.06
+			case "often":
+				cfg.UI.GardenSeedRate = 0.15
+			default:
+				cfg.UI.GardenSeedRate = 0
+			}
+		case 13:
+			switch opts[idx] {
+			case "few":
+				cfg.UI.GardenOffspringMin = 1
+				cfg.UI.GardenOffspringMax = 2
+				cfg.UI.GardenOffspringSpread = 2
+			case "many":
+				cfg.UI.GardenOffspringMin = 3
+				cfg.UI.GardenOffspringMax = 4
+				cfg.UI.GardenOffspringSpread = 5
+			default:
+				cfg.UI.GardenOffspringMin = 0
+				cfg.UI.GardenOffspringMax = 0
+				cfg.UI.GardenOffspringSpread = 0
+			}
 		}
 	case configRowComingSoon:
 		// reserved
@@ -208,12 +359,13 @@ func (m RepoSelectorModel) updateConfigView(msg tea.KeyMsg, cmds []tea.Cmd) (tea
 		}
 
 	case "down", "j":
-		if m.configCursor < len(configRows)-1 {
+		if m.configCursor < visibleConfigRowCount(m.cfg)-1 {
 			m.configCursor++
 		}
 
 	case " ", "right", "l":
 		applyConfigChange(m.configCursor, m.cfg, +1)
+		m.configCursor = clampConfigCursor(m.cfg, m.configCursor)
 		if m.cfg != nil {
 			applyColorProfile(m.cfg.UI.ColorProfile)
 		}
@@ -222,6 +374,7 @@ func (m RepoSelectorModel) updateConfigView(msg tea.KeyMsg, cmds []tea.Cmd) (tea
 
 	case "left", "h":
 		applyConfigChange(m.configCursor, m.cfg, -1)
+		m.configCursor = clampConfigCursor(m.cfg, m.configCursor)
 		if m.cfg != nil {
 			applyColorProfile(m.cfg.UI.ColorProfile)
 		}
@@ -274,7 +427,8 @@ func (m RepoSelectorModel) viewConfig() string {
 	valueStyle := lipgloss.NewStyle().Foreground(activeProfile().configValue).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(activeProfile().configDim)
 
-	for i, row := range configRows {
+	for i := 0; i < visibleConfigRowCount(m.cfg); i++ {
+		row := configRowAt(i, m.cfg)
 		cur := " "
 		if m.configCursor == i {
 			cur = ">"

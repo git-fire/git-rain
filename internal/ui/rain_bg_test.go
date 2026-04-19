@@ -62,6 +62,70 @@ func TestRainBackgroundGardenRenderLineWidths(t *testing.T) {
 	}
 }
 
+func TestGardenSkySeedsForBatchCapped(t *testing.T) {
+	rb := NewRainBackground(100, 6, config.UIRainAnimationGarden)
+	rb.Garden.SeedSpawnRate = 0.35
+	const need = 200
+	for range 400 {
+		k := rb.gardenSkySeedsForBatch(need)
+		if k > 12 {
+			t.Fatalf("gardenSkySeedsForBatch capped too loose: k=%d for need=%d", k, need)
+		}
+	}
+}
+
+func TestGardenSkySeedsThrottleByMaturityAndFlight(t *testing.T) {
+	rb := NewRainBackground(24, 6, config.UIRainAnimationGarden)
+	rb.Garden.SeedSpawnRate = 0.25
+	// Young garden: relief ~0 → tight flying cap; many seeds already aloft → no new sky seeds.
+	for i := range rb.GardenPlots {
+		rb.GardenPlots[i] = gardenPlot{stage: gardenStageSprout}
+	}
+	for i := 0; i < 8; i++ {
+		rb.Drops = append(rb.Drops, RainDrop{IsSeed: true, MaxAge: 99, Y: 2, X: i % rb.Width})
+	}
+	if k := rb.gardenSkySeedsForBatch(40); k != 0 {
+		t.Fatalf("expected 0 new sky seeds when flying count exceeds young cap, got %d", k)
+	}
+	// Mature garden: higher relief and ceiling → room for more seeds if few in flight.
+	rb.Drops = nil
+	for i := range rb.GardenPlots {
+		rb.GardenPlots[i] = gardenPlot{stage: gardenStageBloom}
+	}
+	cap := rb.gardenMaxFlyingSkySeeds(rb.gardenSeedThrottleRelief())
+	if cap < 6 {
+		t.Fatalf("expected mature garden to allow a generous flying-seed cap, got %d", cap)
+	}
+	if k := rb.gardenSkySeedsForBatch(40); k < 1 {
+		t.Fatalf("expected at least one sky seed when mature and sky is clear, got %d", k)
+	}
+}
+
+func TestApplyGardenStormWallClockScaleWiderAndRareSlower(t *testing.T) {
+	cfgNormal := &config.Config{}
+	narrow := ResolveGardenTuning(GardenTuning{})
+	wide := narrow
+	applyGardenStormWallClockScale(&narrow, cfgNormal, 150, 40)
+	applyGardenStormWallClockScale(&wide, cfgNormal, 150, 100)
+	if wide.PlantedToSproutMoisture <= narrow.PlantedToSproutMoisture {
+		t.Fatalf("wider garden width should increase moisture thresholds (got narrow=%d wide=%d)",
+			narrow.PlantedToSproutMoisture, wide.PlantedToSproutMoisture)
+	}
+
+	cfgRare := &config.Config{}
+	cfgRare.UI.GardenSeedRate = 0.06
+	rare := ResolveGardenTuning(GardenTuning{SeedSpawnRate: 0.06})
+	applyGardenStormWallClockScale(&rare, cfgRare, 150, 56)
+	if rare.PlantedToSproutMoisture <= narrow.PlantedToSproutMoisture {
+		t.Fatalf("rare seed preset should slow growth vs normal (rare=%d narrow=%d)",
+			rare.PlantedToSproutMoisture, narrow.PlantedToSproutMoisture)
+	}
+	if rare.SeedSpawnRate >= narrow.SeedSpawnRate {
+		t.Fatalf("rare wall-clock scale should lower effective seed rate (rare=%v narrow=%v)",
+			rare.SeedSpawnRate, narrow.SeedSpawnRate)
+	}
+}
+
 func TestResolveGardenTuningFillsZeroDefaults(t *testing.T) {
 	d := DefaultGardenTuning()
 	got := ResolveGardenTuning(GardenTuning{})

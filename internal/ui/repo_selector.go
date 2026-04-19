@@ -255,8 +255,9 @@ func NewRepoSelectorModelStream(
 		}
 	}
 
-	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
-	rainBg.SetGardenTuning(gardenTuningFromConfig(cfg))
+	bgW := resolveRainBackgroundWidth(80)
+	rainBg := NewRainBackground(bgW, 5, animMode)
+	rainBg.SetGardenTuning(gardenTuningFromConfig(cfg, rainTickMS, bgW))
 
 	return RepoSelectorModel{
 		repos:                nil,
@@ -723,38 +724,39 @@ func (m RepoSelectorModel) renderRainWaveStrip(width int) string {
 // fields from UIConfig into a GardenTuning. Zero values pass through to
 // ResolveGardenTuning so they fall back to DefaultGardenTuning().
 //
-// GardenGrowthPace acts as a single user-friendly dial: it scales the three
-// stage moisture thresholds together. Per-threshold overrides are intentionally
-// not exposed to keep the surface area small; tweak the constants directly if
-// you need finer control.
-func gardenTuningFromConfig(cfg *config.Config) GardenTuning {
-	if cfg == nil {
-		return GardenTuning{}
-	}
-	t := GardenTuning{
-		SeedSpawnRate:         cfg.UI.GardenSeedRate,
-		BloomDurationBase:     cfg.UI.GardenBloomDurationBase,
-		BloomDurationJitter:   cfg.UI.GardenBloomDurationJitter,
-		WitherDuration:        cfg.UI.GardenWitherDuration,
-		OffspringMin:          cfg.UI.GardenOffspringMin,
-		OffspringMax:          cfg.UI.GardenOffspringMax,
-		OffspringSpread:       cfg.UI.GardenOffspringSpread,
-		RainAbsorbExtraChance: 0,
-	}
-	if pace := cfg.UI.GardenGrowthPace; pace > 0 {
-		def := DefaultGardenTuning()
-		scale := func(v int) int {
-			s := int(float64(v)*pace + 0.5)
-			if s < 1 {
-				s = 1
-			}
-			return s
+// GardenGrowthPace scales the three stage moisture thresholds together when
+// set. rainTickMS and gardenWidth tune storm pacing toward target wall times
+// (~32s default, ~150s rare seeds, etc.); see applyGardenStormWallClockScale.
+func gardenTuningFromConfig(cfg *config.Config, rainTickMS, gardenWidth int) GardenTuning {
+	t := GardenTuning{}
+	if cfg != nil {
+		t = GardenTuning{
+			SeedSpawnRate:         cfg.UI.GardenSeedRate,
+			BloomDurationBase:     cfg.UI.GardenBloomDurationBase,
+			BloomDurationJitter:   cfg.UI.GardenBloomDurationJitter,
+			WitherDuration:        cfg.UI.GardenWitherDuration,
+			OffspringMin:          cfg.UI.GardenOffspringMin,
+			OffspringMax:          cfg.UI.GardenOffspringMax,
+			OffspringSpread:       cfg.UI.GardenOffspringSpread,
+			RainAbsorbExtraChance: 0,
 		}
-		t.PlantedToSproutMoisture = scale(def.PlantedToSproutMoisture)
-		t.SproutToBudMoisture = scale(def.SproutToBudMoisture)
-		t.BudToBloomMoisture = scale(def.BudToBloomMoisture)
+		if pace := cfg.UI.GardenGrowthPace; pace > 0 {
+			def := DefaultGardenTuning()
+			scale := func(v int) int {
+				s := int(float64(v)*pace + 0.5)
+				if s < 1 {
+					s = 1
+				}
+				return s
+			}
+			t.PlantedToSproutMoisture = scale(def.PlantedToSproutMoisture)
+			t.SproutToBudMoisture = scale(def.SproutToBudMoisture)
+			t.BudToBloomMoisture = scale(def.BudToBloomMoisture)
+		}
 	}
-	return t
+	resolved := ResolveGardenTuning(t)
+	applyGardenStormWallClockScale(&resolved, cfg, rainTickMS, gardenWidth)
+	return resolved
 }
 
 // applyGardenTuning re-applies the model's config-derived garden tuning to
@@ -763,7 +765,11 @@ func (m RepoSelectorModel) applyGardenTuning(rb *RainBackground) {
 	if rb == nil {
 		return
 	}
-	rb.SetGardenTuning(gardenTuningFromConfig(m.cfg))
+	tick := m.cfg.UI.RainTickMS
+	if tick <= 0 {
+		tick = config.DefaultUIRainTickMS
+	}
+	rb.SetGardenTuning(gardenTuningFromConfig(m.cfg, tick, rb.Width))
 }
 
 // clampCellWidth keeps one screen row within maxCells using lipgloss truncation.

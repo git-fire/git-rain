@@ -138,7 +138,7 @@ color_profile = "storm"
 # (or at 0) to use the built-in defaults; tweak to make growth slower or
 # offspring more (or less) prolific.
 #
-# garden_seed_rate            = 0.10   # fraction of new sky drops that are seeds (0..1)
+# garden_seed_rate            = 0.055  # sky seed density (0..1); runtime caps bursts per frame
 # garden_growth_pace          = 1.0    # multiplier on stage moisture thresholds (>1 = slower)
 # garden_bloom_duration_base  = 60     # min frames a flower lingers in full bloom
 # garden_bloom_duration_jitter = 40    # extra random frames added to bloom lifetime

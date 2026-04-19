@@ -77,12 +77,13 @@ type UIConfig struct {
 	// Options: "storm", "drizzle", "monsoon", "rainbow", "synthwave".
 	ColorProfile string `mapstructure:"color_profile" toml:"color_profile"`
 
-	// Garden mode tuning (advanced; not surfaced in the settings TUI).
-	// Any field left at its zero value falls back to the built-in default,
-	// matching the existing pattern used by RainTickMS.
+	// Garden mode tuning (used when rain_animation_mode = "garden").
+	// In the settings TUI, three rows appear under Rain animation mode; any
+	// field left at zero here still falls back to built-in defaults at runtime.
 
-	// GardenSeedRate is the probability (0..1) that a new sky drop falls as
-	// a seed. Lower values mean rarer seedings; default ~0.10.
+	// GardenSeedRate is the target probability (0..1) for sky seeds; the
+	// simulator caps seeds per frame, so this reads as density, not i.i.d.
+	// rolls. Lower = rarer; default ~0.055.
 	GardenSeedRate float64 `mapstructure:"garden_seed_rate"        toml:"garden_seed_rate,omitempty"`
 
 	// GardenGrowthPace multiplies the moisture thresholds for every growth
@@ -102,7 +103,7 @@ type UIConfig struct {
 	GardenWitherDuration int `mapstructure:"garden_wither_duration"  toml:"garden_wither_duration,omitempty"`
 
 	// GardenOffspringMin/Max bound how many seeds a dying plant scatters.
-	// 0 = use defaults (currently 2 and 3).
+	// 0 = use defaults (currently 1 and 2).
 	GardenOffspringMin int `mapstructure:"garden_offspring_min"    toml:"garden_offspring_min,omitempty"`
 	GardenOffspringMax int `mapstructure:"garden_offspring_max"    toml:"garden_offspring_max,omitempty"`
 

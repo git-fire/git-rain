@@ -26,6 +26,38 @@ var cloudChars = [...]string{"☁", "░", "▒", "▓", "█"}
 // flowerStages for advanced mode bottom row: growth over time
 var flowerStages = []string{"·", "♦", "✿", "❀"}
 
+// gardenFlowerAccentHex holds distinct flower-head colors (garden mode).
+var gardenFlowerAccentHex = []string{
+	"#EC407A", // pink
+	"#AB47BC", // purple
+	"#FFCA28", // amber
+	"#FF7043", // deep orange
+	"#BA68C8", // lavender
+	"#F06292", // light pink
+	"#FFD54F", // golden yellow
+	"#7E57C2", // deep purple
+	"#26C6DA", // cyan
+	"#FFEE58", // yellow
+	"#EF5350", // coral
+	"#66BB6A", // green blossom
+}
+
+func gardenFlowerForeground(tint int) lipgloss.Color {
+	n := len(gardenFlowerAccentHex)
+	if n == 0 {
+		return activeProfile().flowerColor
+	}
+	u := tint % n
+	if u < 0 {
+		u += n
+	}
+	return lipgloss.Color(gardenFlowerAccentHex[u])
+}
+
+func gardenFlowerStyle(tint int) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(gardenFlowerForeground(tint))
+}
+
 // RainDrop represents a single falling raindrop particle
 type RainDrop struct {
 	X        int
@@ -55,6 +87,9 @@ type gardenPlot struct {
 	bloomAge  int
 	witherAge int
 	maxBloom  int // randomized per-bloom duration; computed when entering bloom
+	// flowerTint picks a stable accent from gardenFlowerAccentHex for bloom /
+	// eternal flower heads; set when a seed first plants the column.
+	flowerTint int
 }
 
 // GardenTuning controls the pacing and reproductive behavior of garden mode.
@@ -90,21 +125,21 @@ type GardenTuning struct {
 
 // DefaultGardenTuning returns the built-in pacing constants chosen so the
 // garden takes its time: most sky pixels are rain, columns advance at most
-// once per frame, blooms linger, and dying plants leave 2-3 nearby seeds.
+// once per frame, blooms linger, and dying plants scatter few nearby seeds.
 func DefaultGardenTuning() GardenTuning {
 	return GardenTuning{
-		SeedSpawnRate:           0.10,
-		RainAbsorbExtraChance:   0.15,
-		PlantedToSproutMoisture: 10,
-		SproutToBudMoisture:     14,
-		BudToBloomMoisture:      18,
-		SeedMoistureBoost:       2,
-		BloomDurationBase:       60,
-		BloomDurationJitter:     40,
-		WitherDuration:          28,
-		OffspringMin:            2,
-		OffspringMax:            3,
-		OffspringSpread:         3,
+		SeedSpawnRate:           0.055,
+		RainAbsorbExtraChance:   0.11,
+		PlantedToSproutMoisture: 16,
+		SproutToBudMoisture:     22,
+		BudToBloomMoisture:      30,
+		SeedMoistureBoost:       1,
+		BloomDurationBase:       85,
+		BloomDurationJitter:     55,
+		WitherDuration:          34,
+		OffspringMin:            1,
+		OffspringMax:            2,
+		OffspringSpread:         2,
 	}
 }
 
@@ -158,6 +193,110 @@ func ResolveGardenTuning(t GardenTuning) GardenTuning {
 		t.RainAbsorbExtraChance = 1
 	}
 	return t
+}
+
+// gardenTargetStormWallSeconds picks a storm-completion time budget from the
+// same TUI presets as config_view (growth pace + seed rate). Used to scale
+// tuning so GardenSunny tends to land near these wall times at a reference
+// width, adjusted by applyGardenStormWallClockScale for tick + width.
+func gardenTargetStormWallSeconds(cfg *config.Config) float64 {
+	if cfg == nil {
+		return 32
+	}
+	p := cfg.UI.GardenGrowthPace
+	s := cfg.UI.GardenSeedRate
+	rareSeed := s > 0 && s < 0.08
+	calm := p >= 1.2
+	oftenSeed := s > 0.12
+	fastPace := p > 0 && p < 0.9
+
+	switch {
+	case rareSeed && calm:
+		return 180
+	case rareSeed:
+		return 150
+	case calm:
+		return 60
+	case oftenSeed && fastPace:
+		return 26
+	case oftenSeed || fastPace:
+		return 36
+	default:
+		return 32
+	}
+}
+
+// applyGardenStormWallClockScale stretches resolved garden pacing so the
+// storm phase (until ~80% visual fill / GardenSunny) tends toward
+// gardenTargetStormWallSeconds, scaled by rain tick (ms/frame) and sqrt(width)
+// so wider terminals get proportionally more frames for the same wall time.
+func applyGardenStormWallClockScale(t *GardenTuning, cfg *config.Config, rainTickMS, gardenWidth int) {
+	if t == nil {
+		return
+	}
+	tick := rainTickMS
+	if tick <= 0 {
+		tick = config.DefaultUIRainTickMS
+	}
+	sec := gardenTargetStormWallSeconds(cfg)
+	w := float64(gardenWidth)
+	if w < 12 {
+		w = 12
+	}
+	const refW = 56.0
+	widthNorm := math.Sqrt(w / refW)
+	targetFrames := sec * (1000.0 / float64(tick)) * widthNorm
+
+	// Empirical baseline: pre–wall-clock tuning tended to finish the storm in
+	// roughly this many frames at default moisture + seed rates. Ratio maps
+	// desired wall time into multipliers on thresholds and spawn rate.
+	const refFrames = 66.0
+	scale := targetFrames / refFrames
+	if scale < 1.0 {
+		scale = 1.0
+	}
+	// Slightly extra stretch on the path to first bloom; sky seeds are capped
+	// separately, so moisture still needs headroom to feel gradual.
+	const moistureBloomStretch = 1.12
+	scaleMoist := scale * moistureBloomStretch
+
+	scaleInt := func(v int, m float64) int {
+		x := int(float64(v)*m + 0.5)
+		if x < 1 {
+			return 1
+		}
+		return x
+	}
+	t.PlantedToSproutMoisture = scaleInt(t.PlantedToSproutMoisture, scaleMoist)
+	t.SproutToBudMoisture = scaleInt(t.SproutToBudMoisture, scaleMoist)
+	t.BudToBloomMoisture = scaleInt(t.BudToBloomMoisture, scaleMoist)
+	t.BloomDurationBase = scaleInt(t.BloomDurationBase, scale)
+	t.BloomDurationJitter = scaleInt(t.BloomDurationJitter, scale)
+	t.WitherDuration = scaleInt(t.WitherDuration, scale)
+
+	if t.SeedMoistureBoost > 0 {
+		b := int(float64(t.SeedMoistureBoost)/math.Sqrt(scale) + 0.5)
+		if b < 1 {
+			b = 1
+		}
+		t.SeedMoistureBoost = b
+	}
+
+	t.SeedSpawnRate /= scale
+	if t.SeedSpawnRate < 0.008 {
+		t.SeedSpawnRate = 0.008
+	}
+	if t.SeedSpawnRate > 0.45 {
+		t.SeedSpawnRate = 0.45
+	}
+
+	t.RainAbsorbExtraChance /= scale*0.85 + 0.15
+	if t.RainAbsorbExtraChance < 0.02 {
+		t.RainAbsorbExtraChance = 0.02
+	}
+	if t.RainAbsorbExtraChance > 0.55 {
+		t.RainAbsorbExtraChance = 0.55
+	}
 }
 
 // flowerCell tracks accumulated rainfall at a column for the advanced animation
@@ -230,8 +369,12 @@ func (rb *RainBackground) Reset() {
 		startY = 1 // leave top row for clouds / sky
 	}
 	targetCount := rb.Width * 2
-	for i := 0; i < targetCount; i++ {
-		rb.spawnDrop(startY)
+	if rb.Mode == config.UIRainAnimationGarden {
+		rb.spawnGardenMaintainingDrops(startY, targetCount)
+	} else {
+		for i := 0; i < targetCount; i++ {
+			rb.spawnDrop(startY)
+		}
 	}
 }
 
@@ -250,13 +393,6 @@ func (rb *RainBackground) spawnDrop(minY int) {
 	if rb.Mode == config.UIRainAnimationMatrix {
 		char = matrixGlyphPool[rand.Intn(len(matrixGlyphPool))]
 	}
-	if rb.Mode == config.UIRainAnimationGarden && !rb.GardenSunny {
-		if rand.Float64() < rb.Garden.SeedSpawnRate {
-			isSeed = true
-			char = "∘"
-			speed = 2 + rand.Intn(2) // seeds fall a little slower
-		}
-	}
 	drop := RainDrop{
 		X:        rand.Intn(rb.Width),
 		Y:        startY,
@@ -268,6 +404,191 @@ func (rb *RainBackground) spawnDrop(minY int) {
 		IsSeed:   isSeed,
 	}
 	rb.Drops = append(rb.Drops, drop)
+}
+
+// spawnDropGarden appends one garden storm sky drop (rain or seed).
+func (rb *RainBackground) spawnDropGarden(minY int, isSeed bool) {
+	if rb.Width <= 0 || rb.Height <= 0 {
+		return
+	}
+	startY := minY
+	if rb.Height > 2 {
+		startY = minY + rand.Intn(rb.Height/3)
+	}
+	speed := 1 + rand.Intn(2)
+	char := rainDropChars[rand.Intn(len(rainDropChars))]
+	if isSeed {
+		char = "∘"
+		speed = 2 + rand.Intn(2) // seeds fall a little slower
+	}
+	rb.Drops = append(rb.Drops, RainDrop{
+		X:        rand.Intn(rb.Width),
+		Y:        startY,
+		Char:     char,
+		ColorIdx: 0,
+		Age:      0,
+		MaxAge:   rb.Height + rand.Intn(6),
+		Speed:    speed,
+		IsSeed:   isSeed,
+	})
+}
+
+func gardenBinomial(n int, p float64) int {
+	if n <= 0 || p <= 0 {
+		return 0
+	}
+	if p >= 1 {
+		return n
+	}
+	c := 0
+	for i := 0; i < n; i++ {
+		if rand.Float64() < p {
+			c++
+		}
+	}
+	return c
+}
+
+// gardenRandSeedMask picks exactly k true entries among n (uniform subset).
+func gardenRandSeedMask(n, k int) []bool {
+	m := make([]bool, n)
+	if k <= 0 {
+		return m
+	}
+	if k >= n {
+		for i := range m {
+			m[i] = true
+		}
+		return m
+	}
+	perm := rand.Perm(n)
+	for i := 0; i < k; i++ {
+		m[perm[i]] = true
+	}
+	return m
+}
+
+func (rb *RainBackground) gardenSeedsInFlight() int {
+	n := 0
+	for i := range rb.Drops {
+		if rb.Drops[i].IsSeed {
+			n++
+		}
+	}
+	return n
+}
+
+// gardenSeedThrottleRelief is in [0,1]: low when plots are empty or early
+// growth, high when many columns are in full bloom (or eternal). It relaxes
+// the global flying-seed ceiling so young plants see few sky seeds, and mature
+// meadows can carry more falling seeds.
+func (rb *RainBackground) gardenSeedThrottleRelief() float64 {
+	if rb.GardenPlots == nil || len(rb.GardenPlots) == 0 {
+		return 0
+	}
+	var sum float64
+	for i := range rb.GardenPlots {
+		switch rb.GardenPlots[i].stage {
+		case gardenStageNone:
+			sum += 0
+		case gardenStagePlanted:
+			sum += 0.1
+		case gardenStageSprout:
+			sum += 0.28
+		case gardenStageBud:
+			sum += 0.5
+		case gardenStageBloom:
+			sum += 1.0
+		case gardenStageWither:
+			sum += 0.72
+		case gardenStageEternal:
+			sum += 1.0
+		default:
+			sum += 0
+		}
+	}
+	return sum / float64(len(rb.GardenPlots))
+}
+
+// gardenMaxFlyingSkySeeds returns how many seed drops may exist at once for
+// this garden maturity (relief). Early stages get a low ceiling; full bloom
+// raises it roughly linearly between lo and hi.
+func (rb *RainBackground) gardenMaxFlyingSkySeeds(relief float64) int {
+	if relief < 0 {
+		relief = 0
+	}
+	if relief > 1 {
+		relief = 1
+	}
+	rate := rb.Garden.SeedSpawnRate
+	if rate <= 0 {
+		rate = DefaultGardenTuning().SeedSpawnRate
+	}
+	w := float64(rb.Width)
+	hi := int(0.5 + w*rate*0.55 + 4)
+	if hi < 4 {
+		hi = 4
+	}
+	lo := max(1, hi/5)
+	cap := int(0.5 + float64(lo)+(float64(hi-lo))*relief)
+	if cap < 1 {
+		cap = 1
+	}
+	if cap > hi {
+		cap = hi
+	}
+	return cap
+}
+
+// gardenSkySeedsForBatch returns how many of 'need' new sky drops should be
+// seeds. Refill often adds many drops in one frame; independent Bernoulli rolls
+// would otherwise flood wide terminals with seeds. The count is also clamped
+// by gardenMaxFlyingSkySeeds minus seeds already in flight, with the ceiling
+// rising as plots reach bloom (gardenSeedThrottleRelief).
+func (rb *RainBackground) gardenSkySeedsForBatch(need int) int {
+	if need <= 0 || rb.GardenSunny {
+		return 0
+	}
+	rate := rb.Garden.SeedSpawnRate
+	if rate <= 0 {
+		return 0
+	}
+	maxSeeds := int(0.5 + float64(rb.Width)*rate*0.20)
+	if maxSeeds < 1 {
+		maxSeeds = 1
+	}
+	if maxSeeds > need {
+		maxSeeds = need
+	}
+	raw := gardenBinomial(need, rate)
+	k := raw
+	if k > maxSeeds {
+		k = maxSeeds
+	}
+	relief := rb.gardenSeedThrottleRelief()
+	flying := rb.gardenSeedsInFlight()
+	slotBudget := rb.gardenMaxFlyingSkySeeds(relief) - flying
+	if slotBudget <= 0 {
+		return 0
+	}
+	if k > slotBudget {
+		k = slotBudget
+	}
+	return k
+}
+
+func (rb *RainBackground) spawnGardenMaintainingDrops(minY, targetCount int) {
+	if rb.Width <= 0 || rb.Height <= 0 {
+		return
+	}
+	for len(rb.Drops) < targetCount {
+		need := targetCount - len(rb.Drops)
+		k := rb.gardenSkySeedsForBatch(need)
+		mask := gardenRandSeedMask(need, k)
+		for i := 0; i < need; i++ {
+			rb.spawnDropGarden(minY, mask[i])
+		}
+	}
 }
 
 // Update advances the animation by one frame
@@ -342,6 +663,9 @@ func (rb *RainBackground) Update() {
 					g.moisture = 0
 					g.bloomAge = 0
 					g.witherAge = 0
+					if len(gardenFlowerAccentHex) > 0 {
+						g.flowerTint = rand.Intn(len(gardenFlowerAccentHex))
+					}
 				} else {
 					g.moisture += rb.Garden.SeedMoistureBoost
 				}
@@ -368,8 +692,12 @@ func (rb *RainBackground) Update() {
 	// Spawn new drops to maintain count
 	if rb.Width > 0 && rb.Height > 0 && !(rb.Mode == config.UIRainAnimationGarden && rb.GardenSunny) {
 		targetCount := rb.Width * 2
-		for len(rb.Drops) < targetCount {
-			rb.spawnDrop(minY)
+		if rb.Mode == config.UIRainAnimationGarden {
+			rb.spawnGardenMaintainingDrops(minY, targetCount)
+		} else {
+			for len(rb.Drops) < targetCount {
+				rb.spawnDrop(minY)
+			}
 		}
 	}
 
@@ -588,6 +916,7 @@ func (rb *RainBackground) gardenAdvancePlots() {
 				g.bloomAge = 0
 				g.witherAge = 0
 				g.maxBloom = 0
+				g.flowerTint = 0
 				rb.spawnGardenSeedsBurst(i)
 			}
 		}
@@ -725,9 +1054,7 @@ func (rb *RainBackground) paintGardenOverlays(cells []string) {
 
 	stemStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#1B5E20"))
 	leafStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#43A047"))
-	flowerStyle := lipgloss.NewStyle().Foreground(activeProfile().flowerColor)
 	witherStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6D4C41"))
-	eternalFlower := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8BBD0")).Bold(true)
 
 	for x := 0; x < rb.Width && x < len(rb.GardenPlots); x++ {
 		g := rb.GardenPlots[x]
@@ -744,7 +1071,7 @@ func (rb *RainBackground) paintGardenOverlays(cells []string) {
 				case k == 0:
 					st = stemStyle
 				case k == h-1:
-					st = eternalFlower
+					st = gardenFlowerStyle(g.flowerTint).Bold(true)
 				default:
 					st = leafStyle
 				}
@@ -755,7 +1082,7 @@ func (rb *RainBackground) paintGardenOverlays(cells []string) {
 				case k == 0 && g.stage >= gardenStageBud:
 					st = stemStyle
 				case k >= h-1 && g.stage >= gardenStageBud:
-					st = flowerStyle
+					st = gardenFlowerStyle(g.flowerTint)
 				default:
 					st = leafStyle
 				}
