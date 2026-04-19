@@ -548,11 +548,15 @@ func cycleRepoMode(repo git.Repository) git.Repository {
 	return repo
 }
 
+// rainStripIncludedInLayoutMeasure is whether the rain canvas height must be
+// counted while measuring repo list capacity and panel outer height. This must
+// not call rainVisible, which depends on those measurements (stack overflow).
+func (m RepoSelectorModel) rainStripIncludedInLayoutMeasure() bool {
+	return m.showRain && m.rainBg != nil
+}
+
 func (m RepoSelectorModel) rainVisible() bool {
-	if !m.showRain {
-		return false
-	}
-	if m.rainBg == nil {
+	if !m.rainStripIncludedInLayoutMeasure() {
 		return false
 	}
 	mainCap := m.mainViewMeasuredRepoListCapacity()
@@ -814,7 +818,8 @@ func gardenTuningFromConfig(cfg *config.Config, rainTickMS, gardenWidth int) Gar
 }
 
 // applyGardenTuning re-applies the model's config-derived garden tuning to
-// rb; safe to call any time after rb is (re-)created.
+// rb; safe to call any time after rb is (re-)created. Snow mode also reads
+// snow accumulation from config here.
 func (m RepoSelectorModel) applyGardenTuning(rb *RainBackground) {
 	if rb == nil {
 		return
@@ -824,6 +829,13 @@ func (m RepoSelectorModel) applyGardenTuning(rb *RainBackground) {
 		tick = m.cfg.UI.RainTickMS
 	}
 	rb.SetGardenTuning(gardenTuningFromConfig(m.cfg, tick, rb.Width))
+	if rb.Mode == config.UIRainAnimationSnow {
+		rate := 0.0
+		if m.cfg != nil {
+			rate = m.cfg.UI.SnowAccumulationRate
+		}
+		rb.SetSnowAccumPerLanding(config.SnowAccumPerLanding(rate))
+	}
 }
 
 // clampCellWidth keeps one screen row within maxCells using lipgloss truncation.

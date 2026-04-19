@@ -64,41 +64,57 @@ var configRows = []configRow{
 	{label: "Custom hex palette", kind: configRowComingSoon},
 }
 
-// firstGardenVisibleRow is the visible index of the first garden-only row
+// firstModeExtensionVisibleRow is where mode-specific rows are inserted
 // (after "Rain animation mode" and "Rain panel size").
-const firstGardenVisibleRow = 6
+const firstModeExtensionVisibleRow = 6
 
-// Garden settings rows appear in the menu only when rain mode is garden,
-// directly under "Rain panel size" (see logicalRowIndex).
+// Garden settings rows appear only when rain mode is garden.
 var gardenSettingsConfigRows = []configRow{
 	{label: "Garden growth pace", kind: configRowEnum, options: []string{"calm", "normal", "fast"}},
 	{label: "Garden seed rate", kind: configRowEnum, options: []string{"rare", "normal", "often"}},
 	{label: "Garden offspring", kind: configRowEnum, options: []string{"few", "default", "many"}},
 }
 
-func gardenSettingsRowCount(cfg *config.Config) int {
-	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.UI.RainAnimationMode), config.UIRainAnimationGarden) {
-		return len(gardenSettingsConfigRows)
+// Snow settings rows appear only when rain mode is snow.
+var snowSettingsConfigRows = []configRow{
+	{label: "Snow accumulation", kind: configRowEnum, options: []string{"1×", "2×", "3×", "4×", "6×", "8×"}},
+}
+
+func modeExtensionRows(cfg *config.Config) []configRow {
+	if cfg == nil {
+		return nil
 	}
-	return 0
+	switch strings.ToLower(strings.TrimSpace(cfg.UI.RainAnimationMode)) {
+	case config.UIRainAnimationGarden:
+		return gardenSettingsConfigRows
+	case config.UIRainAnimationSnow:
+		return snowSettingsConfigRows
+	default:
+		return nil
+	}
+}
+
+func modeExtensionRowCount(cfg *config.Config) int {
+	r := modeExtensionRows(cfg)
+	return len(r)
 }
 
 func visibleConfigRowCount(cfg *config.Config) int {
-	return len(configRows) + gardenSettingsRowCount(cfg)
+	return len(configRows) + modeExtensionRowCount(cfg)
 }
 
 // logicalRowIndex maps a visible settings row to legacy ids 0..len(configRows)-1
-// or len(configRows)+k for garden-only rows.
+// or len(configRows)+k for mode-extension rows (garden or snow).
 func logicalRowIndex(visibleI int, cfg *config.Config) int {
-	g := gardenSettingsRowCount(cfg)
+	g := modeExtensionRowCount(cfg)
 	if g == 0 {
 		return visibleI
 	}
-	if visibleI < firstGardenVisibleRow {
+	if visibleI < firstModeExtensionVisibleRow {
 		return visibleI
 	}
-	if visibleI < firstGardenVisibleRow+g {
-		return len(configRows) + (visibleI - firstGardenVisibleRow)
+	if visibleI < firstModeExtensionVisibleRow+g {
+		return len(configRows) + (visibleI - firstModeExtensionVisibleRow)
 	}
 	return visibleI - g
 }
@@ -108,9 +124,10 @@ func configRowAt(visibleI int, cfg *config.Config) configRow {
 	if li < len(configRows) {
 		return configRows[li]
 	}
+	ext := modeExtensionRows(cfg)
 	gi := li - len(configRows)
-	if gi >= 0 && gi < len(gardenSettingsConfigRows) {
-		return gardenSettingsConfigRows[gi]
+	if ext != nil && gi >= 0 && gi < len(ext) {
+		return ext[gi]
 	}
 	return configRows[len(configRows)-1]
 }
@@ -179,6 +196,26 @@ func gardenOffspringLabel(cfg *config.Config) string {
 	return "default"
 }
 
+func snowAccumLabel(cfg *config.Config) string {
+	if cfg == nil {
+		return "1×"
+	}
+	switch config.SnowAccumPerLanding(cfg.UI.SnowAccumulationRate) {
+	case 2:
+		return "2×"
+	case 3:
+		return "3×"
+	case 4:
+		return "4×"
+	case 6:
+		return "6×"
+	case 8:
+		return "8×"
+	default:
+		return "1×"
+	}
+}
+
 func configRowValue(visibleI int, cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -224,6 +261,9 @@ func configRowValue(visibleI int, cfg *config.Config) string {
 	case 11:
 		return "coming soon"
 	case 12:
+		if strings.EqualFold(strings.TrimSpace(cfg.UI.RainAnimationMode), config.UIRainAnimationSnow) {
+			return snowAccumLabel(cfg)
+		}
 		return gardenGrowthPaceLabel(cfg)
 	case 13:
 		return gardenSeedRateLabel(cfg)
@@ -284,13 +324,30 @@ func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 		case 10:
 			cfg.UI.ColorProfile = opts[idx]
 		case 12:
-			switch opts[idx] {
-			case "calm":
-				cfg.UI.GardenGrowthPace = 1.32
-			case "fast":
-				cfg.UI.GardenGrowthPace = 0.78
-			default:
-				cfg.UI.GardenGrowthPace = 0
+			if strings.EqualFold(strings.TrimSpace(cfg.UI.RainAnimationMode), config.UIRainAnimationSnow) {
+				switch opts[idx] {
+				case "2×":
+					cfg.UI.SnowAccumulationRate = 2
+				case "3×":
+					cfg.UI.SnowAccumulationRate = 3
+				case "4×":
+					cfg.UI.SnowAccumulationRate = 4
+				case "6×":
+					cfg.UI.SnowAccumulationRate = 6
+				case "8×":
+					cfg.UI.SnowAccumulationRate = 8
+				default:
+					cfg.UI.SnowAccumulationRate = 0
+				}
+			} else {
+				switch opts[idx] {
+				case "calm":
+					cfg.UI.GardenGrowthPace = 1.32
+				case "fast":
+					cfg.UI.GardenGrowthPace = 0.78
+				default:
+					cfg.UI.GardenGrowthPace = 0
+				}
 			}
 		case 13:
 			switch opts[idx] {

@@ -66,6 +66,38 @@ func (rb *RainBackground) initSnowScene() {
 			rb.SnowmanX = min(rb.Width-3, rb.SnowCabinLeft+snowCabinW+3)
 		}
 	}
+	rb.snowSpawnInitialTrees()
+}
+
+// snowSpawnInitialTrees places evergreen trees immediately using width-scaled
+// slots (stable across runs for a given canvas width).
+func (rb *RainBackground) snowSpawnInitialTrees() {
+	if rb.Width < 10 || rb.Height < 5 {
+		return
+	}
+	slots := []int{
+		2,
+		max(2, rb.Width/5),
+		max(2, rb.Width*2/7),
+		rb.Width - 3,
+	}
+	if rb.Width > 30 {
+		slots = append(slots, max(2, rb.Width/2-8), min(rb.Width-3, rb.Width/2+8))
+	}
+	for i, x := range slots {
+		if x < 1 || x >= rb.Width-1 {
+			continue
+		}
+		if !rb.snowFootprintFree(x, 1) {
+			continue
+		}
+		h := 2
+		if rb.Height >= 8 && i%2 == 0 {
+			h = 3
+		}
+		frost := 1 + (i % 2)
+		rb.SnowTrees = append(rb.SnowTrees, snowTree{x: x, h: h, frost: frost, birthFrame: i * 19})
+	}
 }
 
 func (rb *RainBackground) snowChimneyTop() (int, int) {
@@ -183,17 +215,6 @@ func (rb *RainBackground) snowAdvanceScene() {
 		// terminal
 	}
 
-	if rb.Frame%140 == 0 && len(rb.SnowTrees) < 4 && rb.Height >= 5 {
-		x := rand.Intn(rb.Width)
-		if rb.snowFootprintFree(x, 1) {
-			h := 2 + rand.Intn(2)
-			if rb.Height < 7 {
-				h = 2
-			}
-			rb.SnowTrees = append(rb.SnowTrees, snowTree{x: x, h: h, birthFrame: rb.Frame})
-		}
-	}
-
 	if rb.Frame%8 == 0 {
 		cx, cy := rb.snowChimneyTop()
 		if cy >= 0 && cx >= 0 && cx < rb.Width {
@@ -231,6 +252,9 @@ func (rb *RainBackground) snowFootprintFree(x, w int) bool {
 		return false
 	}
 	sL, sR := rb.SnowmanX-3, rb.SnowmanX+4
+	if rb.SnowmanPhase >= snowmanPhaseBaseLarge {
+		sL, sR = rb.SnowmanX-5, rb.SnowmanX+5
+	}
 	if rb.SnowmanPhase != snowmanPhaseNone && right > sL && left < sR {
 		return false
 	}
@@ -283,10 +307,12 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 	win := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC80")).Bold(true)
 	ever := lipgloss.NewStyle().Foreground(lipgloss.Color("#1B5E20"))
 	everFrost := lipgloss.NewStyle().Foreground(lipgloss.Color("#C8E6C9")).Faint(true)
-	snowBall := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECEFF1"))
-	snowHi := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-	coal := lipgloss.NewStyle().Foreground(lipgloss.Color("#263238"))
-	nose := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6F00")).Bold(true)
+	// Snowman: high-contrast whites + bold so the figure reads above the ground bank.
+	snowBall := lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Bold(true)
+	snowHi := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	snowParen := lipgloss.NewStyle().Foreground(lipgloss.Color("#90A4AE")).Bold(true)
+	coal := lipgloss.NewStyle().Foreground(lipgloss.Color("#37474F")).Bold(true)
+	nose := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF9100")).Bold(true)
 	smokeSt := lipgloss.NewStyle().Foreground(lipgloss.Color("#90A4AE")).Faint(true)
 	hatSt := lipgloss.NewStyle().Foreground(lipgloss.Color("#212121")).Bold(true)
 	frost := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECEFF1")).Faint(true)
@@ -304,7 +330,7 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 		cells[x] = ch
 	}
 
-	// Trees
+	// Trees (evergreens: full silhouette from frame one)
 	for _, tr := range rb.SnowTrees {
 		baseY := rb.Height - 2
 		st := ever
@@ -316,11 +342,15 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 			if y < 1 || y >= rb.Height {
 				continue
 			}
-			ch := "|"
 			if k == tr.h-1 {
-				ch = "^"
+				rb.snowPaintLine(cells, tr.x-1, y, "/\\", st)
+				continue
 			}
-			rb.snowPaintCell(cells, tr.x, y, ch, st)
+			if k == tr.h-2 && tr.h >= 3 {
+				rb.snowPaintLine(cells, tr.x-1, y, "/█\\", st)
+				continue
+			}
+			rb.snowPaintCell(cells, tr.x, y, "┃", st)
 		}
 	}
 
@@ -380,48 +410,63 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 		}
 	}
 
-	// Snowman
-	gnd := rb.Height - 1
-	headY := gnd - 1
-	faceY := gnd - 2
-	hatY := gnd - 3
+	// Snowman — feet sit one row above the ground snow bank (row h-2 vs pile h-1)
+	// so the figure reads clearly and is not merged into the depth glyphs.
+	feetY := rb.Height - 2
+	bellyY := feetY - 1
+	faceY := feetY - 2
+	scarfY := feetY - 3
+	hatBrimY := feetY - 4
+	hatTopY := feetY - 5
+	scarfSt := lipgloss.NewStyle().Foreground(lipgloss.Color("#E53935")).Bold(true)
+
 	if rb.SnowmanPhase >= snowmanPhaseBaseDot {
-		baseCh := "·"
 		switch {
 		case rb.SnowmanPhase >= snowmanPhaseBaseLarge:
-			baseCh = "●"
+			rb.snowPaintCell(cells, rb.SnowmanX-1, feetY, "(", snowParen)
+			rb.snowPaintCell(cells, rb.SnowmanX, feetY, "●", snowBall)
+			rb.snowPaintCell(cells, rb.SnowmanX+1, feetY, ")", snowParen)
 		case rb.SnowmanPhase >= snowmanPhaseBaseMed:
-			baseCh = "O"
+			rb.snowPaintCell(cells, rb.SnowmanX-1, feetY, "(", snowParen)
+			rb.snowPaintCell(cells, rb.SnowmanX, feetY, "○", snowBall)
+			rb.snowPaintCell(cells, rb.SnowmanX+1, feetY, ")", snowParen)
 		case rb.SnowmanPhase >= snowmanPhaseBaseSmall:
-			baseCh = "o"
+			rb.snowPaintCell(cells, rb.SnowmanX, feetY, "○", snowBall)
+		default:
+			rb.snowPaintCell(cells, rb.SnowmanX, feetY, "·", snowHi)
 		}
-		rb.snowPaintCell(cells, rb.SnowmanX, gnd, baseCh, snowBall)
 	}
-	if rb.SnowmanPhase >= snowmanPhaseHeadDot {
-		h := "·"
+	if rb.SnowmanPhase >= snowmanPhaseHeadDot && bellyY >= 1 {
 		if rb.SnowmanPhase >= snowmanPhaseHeadRound {
-			h = "O"
-		}
-		if headY >= 1 {
-			rb.snowPaintCell(cells, rb.SnowmanX, headY, h, snowHi)
+			rb.snowPaintCell(cells, rb.SnowmanX, bellyY, "●", snowHi)
+		} else {
+			rb.snowPaintCell(cells, rb.SnowmanX, bellyY, "•", snowBall)
 		}
 	}
 	if rb.SnowmanPhase >= snowmanPhaseFace && faceY >= 1 {
-		rb.snowPaintCell(cells, rb.SnowmanX-1, faceY, "•", coal)
-		rb.snowPaintCell(cells, rb.SnowmanX+1, faceY, "•", coal)
-		rb.snowPaintCell(cells, rb.SnowmanX, faceY, "@", nose)
-		smileY := faceY + 1
-		if smileY < rb.Height {
-			rb.snowPaintCell(cells, rb.SnowmanX, smileY, "‿", coal)
-		}
+		rb.snowPaintCell(cells, rb.SnowmanX-1, faceY, "●", coal)
+		rb.snowPaintCell(cells, rb.SnowmanX+1, faceY, "●", coal)
+		rb.snowPaintCell(cells, rb.SnowmanX, faceY, "▲", nose)
 	}
 	if rb.SnowmanPhase >= snowmanPhasePipe && faceY >= 1 {
-		rb.snowPaintCell(cells, rb.SnowmanX+2, faceY, "╾", woodHi)
+		rb.snowPaintCell(cells, rb.SnowmanX-2, faceY, "╴", woodHi)
+		rb.snowPaintCell(cells, rb.SnowmanX+2, faceY, "╶", woodHi)
 	}
-	if rb.SnowmanPhase >= snowmanPhaseHat && hatY >= 1 {
-		rb.snowPaintCell(cells, rb.SnowmanX-1, hatY, "▄", hatSt)
-		rb.snowPaintCell(cells, rb.SnowmanX, hatY, "▀", hatSt)
-		rb.snowPaintCell(cells, rb.SnowmanX+1, hatY, "▄", hatSt)
+	if rb.SnowmanPhase >= snowmanPhasePipe && bellyY >= 1 {
+		rb.snowPaintCell(cells, rb.SnowmanX-2, bellyY, "╱", snowBall)
+		rb.snowPaintCell(cells, rb.SnowmanX+2, bellyY, "╲", snowBall)
+	}
+	if rb.SnowmanPhase >= snowmanPhaseHat && scarfY >= 1 {
+		rb.snowPaintLine(cells, rb.SnowmanX-2, scarfY, "≋≋≋", scarfSt)
+	}
+	if rb.SnowmanPhase >= snowmanPhaseHat && hatBrimY >= 1 {
+		rb.snowPaintLine(cells, rb.SnowmanX-2, hatBrimY, "───", hatSt)
+	}
+	if rb.SnowmanPhase >= snowmanPhaseHat && hatTopY >= 1 {
+		rb.snowPaintCell(cells, rb.SnowmanX, hatTopY, "█", hatSt)
+		if hatTopY-1 >= 1 {
+			rb.snowPaintCell(cells, rb.SnowmanX, hatTopY-1, "●", hatSt.Foreground(lipgloss.Color("#B71C1C")))
+		}
 	}
 
 	for _, sm := range rb.SnowSmoke {

@@ -111,6 +111,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.garden_offspring_min", defaults.UI.GardenOffspringMin)
 	v.SetDefault("ui.garden_offspring_max", defaults.UI.GardenOffspringMax)
 	v.SetDefault("ui.garden_offspring_spread", defaults.UI.GardenOffspringSpread)
+	v.SetDefault("ui.snow_accumulation_rate", defaults.UI.SnowAccumulationRate)
 }
 
 // Bounded lock acquisition for config.toml: SaveConfig runs from the TUI on

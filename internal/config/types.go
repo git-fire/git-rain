@@ -1,7 +1,10 @@
 // Package config defines the git-rain configuration schema and related constants.
 package config
 
-import "strings"
+import (
+	"math"
+	"strings"
+)
 
 // Config represents the complete git-rain configuration
 type Config struct {
@@ -118,6 +121,11 @@ type UIConfig struct {
 	// GardenOffspringSpread is the half-width X jitter applied around the
 	// parent column when scattering offspring seeds. 0 = default.
 	GardenOffspringSpread int `mapstructure:"garden_offspring_spread" toml:"garden_offspring_spread,omitempty"`
+
+	// SnowAccumulationRate scales how much ground snow depth each landed flake
+	// adds when rain_animation_mode = "snow". 1 = default; 2 ≈ twice as fast.
+	// Values are rounded to a whole number of depth units per landing (1..8).
+	SnowAccumulationRate float64 `mapstructure:"snow_accumulation_rate" toml:"snow_accumulation_rate,omitempty"`
 }
 
 const (
@@ -175,4 +183,20 @@ func UIColorProfiles() []string {
 		UIColorProfileRainbow,
 		UIColorProfileSynthwave,
 	}
+}
+
+// SnowAccumPerLanding returns ground depth units added per landed snowflake.
+// rate is cfg.UI.SnowAccumulationRate; 0 or negative means 1. Result is in [1, 8].
+func SnowAccumPerLanding(rate float64) int {
+	if rate <= 0 {
+		return 1
+	}
+	n := int(math.Round(rate))
+	if n < 1 {
+		return 1
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
 }

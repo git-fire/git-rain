@@ -317,12 +317,13 @@ func TestRainBackgroundSnowRenderLineWidths(t *testing.T) {
 func TestSnowGroundDepthIncreases(t *testing.T) {
 	const w, h = 24, 6
 	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
+	rb.SetSnowAccumPerLanding(4)
 	rand.Seed(7)
 	sum0 := 0
 	for _, v := range rb.SnowGround {
 		sum0 += v
 	}
-	for i := 0; i < 400; i++ {
+	for i := 0; i < 120; i++ {
 		rb.Update()
 	}
 	sum1 := 0

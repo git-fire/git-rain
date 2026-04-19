@@ -66,7 +66,7 @@ type RainDrop struct {
 	ColorIdx int
 	Age      int
 	MaxAge   int
-	Speed    int  // move down every Speed frames (1 = every frame, 2 = every other, etc.)
+	Speed    int // move down every Speed frames (1 = every frame, 2 = every other, etc.)
 	IsSeed   bool // garden mode: seed vs rain
 }
 
@@ -366,15 +366,16 @@ type RainBackground struct {
 	Garden      GardenTuning // pacing knobs (always resolved to non-zero values)
 
 	// Snow mode (winter scene); used only when Mode == UIRainAnimationSnow.
-	SnowGround     []int
-	SnowCabinLeft  int
-	SnowTrees      []snowTree
-	SnowSmoke      []snowSmoke
-	SnowmanPhase   int
-	SnowmanX       int
-	SnowmanBuild   int
-	SnowmanAux     int // frame counter for accessory delays
-	SnowCabinFrost int
+	SnowGround            []int
+	SnowCabinLeft         int
+	SnowTrees             []snowTree
+	SnowSmoke             []snowSmoke
+	SnowmanPhase          int
+	SnowmanX              int
+	SnowmanBuild          int
+	SnowmanAux            int // frame counter for accessory delays
+	SnowCabinFrost        int
+	snowAccumPerLanding   int // ground depth per landed flake (1..8)
 }
 
 // NewRainBackground creates a new rain background
@@ -402,6 +403,18 @@ func NewRainBackground(width, height int, mode string) *RainBackground {
 // are resolved to defaults; callers can pass partial structs.
 func (rb *RainBackground) SetGardenTuning(t GardenTuning) {
 	rb.Garden = ResolveGardenTuning(t)
+}
+
+// SetSnowAccumPerLanding sets how many ground depth units each snowflake adds
+// when it lands (snow mode only). Values are clamped to [1, 8].
+func (rb *RainBackground) SetSnowAccumPerLanding(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > 8 {
+		n = 8
+	}
+	rb.snowAccumPerLanding = n
 }
 
 func (rb *RainBackground) buildCloudRow() []string {
@@ -613,7 +626,7 @@ func (rb *RainBackground) gardenMaxFlyingSkySeeds(relief float64) int {
 	if reliefEff > 1 {
 		reliefEff = 1
 	}
-	ceiling := int(0.5 + float64(lo) + (float64(hi-lo))*reliefEff)
+	ceiling := int(0.5 + float64(lo)+(float64(hi-lo))*reliefEff)
 	if ceiling < 1 {
 		ceiling = 1
 	}
@@ -771,7 +784,11 @@ func (rb *RainBackground) Update() {
 		}
 
 		if rb.Mode == config.UIRainAnimationSnow && p.Y >= maxDropY && p.Y < rb.Height && rb.SnowGround != nil && p.X >= 0 && p.X < len(rb.SnowGround) {
-			rb.SnowGround[p.X]++
+			add := rb.snowAccumPerLanding
+			if add < 1 {
+				add = 1
+			}
+			rb.SnowGround[p.X] += add
 			rb.snowNoteFlakeLand(p.X)
 			p.Age = p.MaxAge
 		}
