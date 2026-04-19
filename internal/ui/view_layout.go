@@ -16,7 +16,7 @@ func (m RepoSelectorModel) mainViewHeaderBlock() string {
 	if m.rainVisible() {
 		s.WriteString(m.rainBg.Render())
 		s.WriteString("\n")
-		s.WriteString(RenderRainWave(rainW, m.frameIndex, m.rainAnimationMode))
+		s.WriteString(m.renderRainWaveStrip(rainW))
 		s.WriteString("\n\n")
 	}
 	titleGradient := lipgloss.NewStyle().
@@ -227,7 +227,7 @@ func (m RepoSelectorModel) ignoredViewHeaderBlock() string {
 	if m.rainVisible() {
 		s.WriteString(m.rainBg.Render())
 		s.WriteString("\n")
-		s.WriteString(RenderRainWave(rainW, m.frameIndex, m.rainAnimationMode))
+		s.WriteString(m.renderRainWaveStrip(rainW))
 		s.WriteString("\n\n")
 	}
 	s.WriteString(m.renderIgnoredViewTitle())

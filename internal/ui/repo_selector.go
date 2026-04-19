@@ -255,7 +255,9 @@ func NewRepoSelectorModelStream(
 		}
 	}
 
-	rainBg := NewRainBackground(resolveRainBackgroundWidth(80), 5, animMode)
+	bgW := resolveRainBackgroundWidth(80)
+	rainBg := NewRainBackground(bgW, 5, animMode)
+	rainBg.SetGardenTuning(gardenTuningFromConfig(cfg, rainTickMS, bgW))
 
 	return RepoSelectorModel{
 		repos:                nil,
@@ -337,6 +339,7 @@ func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowHeight = msg.Height
 		bgW := resolveRainBackgroundWidth(msg.Width)
 		m.rainBg = NewRainBackground(bgW, 5, m.rainAnimationMode)
+		m.applyGardenTuning(m.rainBg)
 		m = m.withClampedPathScroll()
 		m.scrollOffset = m.clampScroll(m.scrollOffset, m.cursor, m.repoListVisibleCount(), len(m.repos))
 		m.ignoredScrollOffset = m.clampScroll(m.ignoredScrollOffset, m.ignoredCursor, m.ignoredListVisibleCount(), len(m.ignoredEntries))
@@ -710,6 +713,64 @@ func resolveRainBackgroundWidth(terminalWidth int) int {
 		w = 1
 	}
 	return w
+}
+
+func (m RepoSelectorModel) renderRainWaveStrip(width int) string {
+	sunny := m.rainBg != nil && m.rainAnimationMode == config.UIRainAnimationGarden && m.rainBg.GardenSunny
+	return RenderRainWave(width, m.frameIndex, m.rainAnimationMode, sunny)
+}
+
+// gardenTuningFromConfig translates the (advanced, TOML-only) garden_*
+// fields from UIConfig into a GardenTuning. Zero values pass through to
+// ResolveGardenTuning so they fall back to DefaultGardenTuning().
+//
+// GardenGrowthPace scales the three stage moisture thresholds together when
+// set. rainTickMS and gardenWidth tune storm pacing toward target wall times
+// (~32s default, ~150s rare seeds, etc.); see applyGardenStormWallClockScale.
+func gardenTuningFromConfig(cfg *config.Config, rainTickMS, gardenWidth int) GardenTuning {
+	t := GardenTuning{}
+	if cfg != nil {
+		t = GardenTuning{
+			SeedSpawnRate:         cfg.UI.GardenSeedRate,
+			BloomDurationBase:     cfg.UI.GardenBloomDurationBase,
+			BloomDurationJitter:   cfg.UI.GardenBloomDurationJitter,
+			WitherDuration:        cfg.UI.GardenWitherDuration,
+			OffspringMin:          cfg.UI.GardenOffspringMin,
+			OffspringMax:          cfg.UI.GardenOffspringMax,
+			OffspringSpread:       cfg.UI.GardenOffspringSpread,
+			RainAbsorbExtraChance: 0,
+		}
+		if pace := cfg.UI.GardenGrowthPace; pace > 0 {
+			def := DefaultGardenTuning()
+			scale := func(v int) int {
+				s := int(float64(v)*pace + 0.5)
+				if s < 1 {
+					s = 1
+				}
+				return s
+			}
+			t.PlantedToSproutMoisture = scale(def.PlantedToSproutMoisture)
+			t.SproutToBudMoisture = scale(def.SproutToBudMoisture)
+			t.BudToBloomMoisture = scale(def.BudToBloomMoisture)
+		}
+	}
+	resolved := ResolveGardenTuning(t)
+	resolved.PresetAggression = gardenPresetAggression(cfg)
+	applyGardenStormWallClockScale(&resolved, cfg, rainTickMS, gardenWidth)
+	return resolved
+}
+
+// applyGardenTuning re-applies the model's config-derived garden tuning to
+// rb; safe to call any time after rb is (re-)created.
+func (m RepoSelectorModel) applyGardenTuning(rb *RainBackground) {
+	if rb == nil {
+		return
+	}
+	tick := config.DefaultUIRainTickMS
+	if m.cfg != nil && m.cfg.UI.RainTickMS > 0 {
+		tick = m.cfg.UI.RainTickMS
+	}
+	rb.SetGardenTuning(gardenTuningFromConfig(m.cfg, tick, rb.Width))
 }
 
 // clampCellWidth keeps one screen row within maxCells using lipgloss truncation.

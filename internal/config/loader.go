@@ -97,6 +97,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.startup_quote_interval_sec", defaults.UI.StartupQuoteIntervalSec)
 	v.SetDefault("ui.rain_tick_ms", defaults.UI.RainTickMS)
 	v.SetDefault("ui.color_profile", defaults.UI.ColorProfile)
+
+	// Garden tuning keys default to zero so the runtime can detect "unset"
+	// and substitute the built-in defaults from DefaultGardenTuning().
+	v.SetDefault("ui.garden_seed_rate", defaults.UI.GardenSeedRate)
+	v.SetDefault("ui.garden_growth_pace", defaults.UI.GardenGrowthPace)
+	v.SetDefault("ui.garden_bloom_duration_base", defaults.UI.GardenBloomDurationBase)
+	v.SetDefault("ui.garden_bloom_duration_jitter", defaults.UI.GardenBloomDurationJitter)
+	v.SetDefault("ui.garden_wither_duration", defaults.UI.GardenWitherDuration)
+	v.SetDefault("ui.garden_offspring_min", defaults.UI.GardenOffspringMin)
+	v.SetDefault("ui.garden_offspring_max", defaults.UI.GardenOffspringMax)
+	v.SetDefault("ui.garden_offspring_spread", defaults.UI.GardenOffspringSpread)
 }
 
 // Bounded lock acquisition for config.toml: SaveConfig runs from the TUI on
