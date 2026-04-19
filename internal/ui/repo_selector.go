@@ -765,9 +765,9 @@ func (m RepoSelectorModel) applyGardenTuning(rb *RainBackground) {
 	if rb == nil {
 		return
 	}
-	tick := m.cfg.UI.RainTickMS
-	if tick <= 0 {
-		tick = config.DefaultUIRainTickMS
+	tick := config.DefaultUIRainTickMS
+	if m.cfg != nil && m.cfg.UI.RainTickMS > 0 {
+		tick = m.cfg.UI.RainTickMS
 	}
 	rb.SetGardenTuning(gardenTuningFromConfig(m.cfg, tick, rb.Width))
 }
