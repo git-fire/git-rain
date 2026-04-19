@@ -692,6 +692,7 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	// walk is running, so long scans aren't silent. Skipped when DisableScan
 	// because there is no walk to report on.
 	var lastFolder atomic.Pointer[string]
+	var scanProgressTickerDone chan struct{}
 	if !opts.DisableScan {
 		go func() {
 			for p := range folderProgress {
@@ -699,7 +700,9 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 				lastFolder.Store(&pp)
 			}
 		}()
+		scanProgressTickerDone = make(chan struct{})
 		go func() {
+			defer close(scanProgressTickerDone)
 			tick := time.NewTicker(2 * time.Second)
 			defer tick.Stop()
 			const scanPrefix = "   🔍 Scanning… "
@@ -790,10 +793,16 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	workersWG.Wait()
 	<-upsertDone
 	<-scanDone
+	if scanProgressTickerDone != nil {
+		<-scanProgressTickerDone
+	}
 
 	if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "warning: scan error: %s\n", safety.SanitizeText(scanErr.Error()))
 	}
+
+	printMu.Lock()
+	defer printMu.Unlock()
 
 	if atomic.LoadInt64(&seq) == 0 {
 		fmt.Println("No git repositories found.")
