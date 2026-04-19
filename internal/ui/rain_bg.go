@@ -26,6 +26,10 @@ var cloudChars = [...]string{"☁", "░", "▒", "▓", "█"}
 // flowerStages for advanced mode bottom row: growth over time
 var flowerStages = []string{"·", "♦", "✿", "❀"}
 
+// flowerStagesGarden uses a clearer dot → filled disc step before the Unicode
+// blooms so terminals that muddy ♦/✿ still read as “opening”.
+var flowerStagesGarden = []string{"·", "●", "✿", "❀"}
+
 // RainDrop represents a single falling raindrop particle
 type RainDrop struct {
 	X        int
@@ -48,13 +52,17 @@ type RainBackground struct {
 	Height   int
 	Drops    []RainDrop
 	Frame    int
-	Mode     string // "basic" or "advanced"
+	Mode     string // basic | advanced | matrix | garden
 	Flowers  []flowerCell
 	CloudRow []string // pre-rendered cloud chars per column
+
+	gardenTh1, gardenTh2, gardenTh3 int // bloom thresholds when Mode == garden
+	gardenMoistCap                   int // max accumulated drops per column; 0 = unlimited
+	gardenMoisturePerHit             int // garden only: moisture added per rain hit (fast > 1)
 }
 
-// NewRainBackground creates a new rain background
-func NewRainBackground(width, height int, mode string) *RainBackground {
+// NewRainBackground creates a new rain background. cfg may be nil (defaults apply).
+func NewRainBackground(width, height int, mode string, cfg *config.Config) *RainBackground {
 	rb := &RainBackground{
 		Width:  width,
 		Height: height,
@@ -67,7 +75,100 @@ func NewRainBackground(width, height int, mode string) *RainBackground {
 		rb.CloudRow = rb.buildCloudRow()
 	}
 	rb.Reset()
+	rb.ApplyGardenFromConfig(cfg)
 	return rb
+}
+
+// ApplyGardenFromConfig refreshes garden pacing from cfg. Safe when cfg is nil
+// or mode is not garden (thresholds reset to advanced defaults; cap cleared).
+func (rb *RainBackground) ApplyGardenFromConfig(cfg *config.Config) {
+	if rb == nil {
+		return
+	}
+	rb.gardenTh1, rb.gardenTh2, rb.gardenTh3 = 3, 8, 15
+	rb.gardenMoistCap = 0
+	rb.gardenMoisturePerHit = 1
+	if cfg == nil || !rainAnimModeIsGarden(rb.Mode) {
+		return
+	}
+	th1, th2, th3 := resolveGardenBloomThresholds(cfg.UI.GardenBloomPreset)
+	cap := resolveGardenMoistureCap(cfg.UI.GardenMoistureCap)
+	// A cap below the final bloom threshold would stall growth in the last
+	// stage forever (drops never reach t3). Keep cap as a ceiling but not
+	// below what is needed to show the full sequence.
+	if cap > 0 && cap < th3 {
+		cap = th3
+	}
+	rb.gardenTh1, rb.gardenTh2, rb.gardenTh3 = th1, th2, th3
+	rb.gardenMoistCap = cap
+	if strings.EqualFold(strings.TrimSpace(cfg.UI.GardenBloomPreset), config.UIGardenBloomFast) {
+		rb.gardenMoisturePerHit = 3
+	}
+}
+
+func rainAnimModeIsGarden(mode string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), config.UIRainAnimationGarden)
+}
+
+func flowerGlyph(mode string, stage int) string {
+	if stage < 0 {
+		return flowerStages[0]
+	}
+	if rainAnimModeIsGarden(mode) {
+		if stage < len(flowerStagesGarden) {
+			return flowerStagesGarden[stage]
+		}
+		return flowerStagesGarden[len(flowerStagesGarden)-1]
+	}
+	if stage < len(flowerStages) {
+		return flowerStages[stage]
+	}
+	return flowerStages[len(flowerStages)-1]
+}
+
+// flowerStyleForGrowthStage makes later bloom stages read clearly against the
+// rain palette (same green on every stage looked like endless tiny buds).
+func flowerStyleForGrowthStage(stage int) lipgloss.Style {
+	p := activeProfile()
+	switch stage {
+	case 0:
+		// Slight contrast from the main plant color so “sprout” reads on dark themes.
+		return lipgloss.NewStyle().Foreground(p.cloudColor)
+	case 1:
+		return lipgloss.NewStyle().Foreground(p.flowerColor)
+	case 2:
+		return lipgloss.NewStyle().Foreground(p.scrollHint).Bold(true)
+	case 3:
+		return lipgloss.NewStyle().Foreground(p.selected).Bold(true)
+	default:
+		return lipgloss.NewStyle().Foreground(p.flowerColor)
+	}
+}
+
+func resolveGardenBloomThresholds(preset string) (int, int, int) {
+	switch strings.TrimSpace(strings.ToLower(preset)) {
+	case config.UIGardenBloomCalm:
+		return 5, 14, 26
+	case config.UIGardenBloomFast:
+		// Few column hits needed; moisture-per-hit is also boosted in ApplyGarden.
+		return 1, 2, 4
+	case config.UIGardenBloomNormal:
+		return 2, 6, 12
+	default:
+		// Empty / unknown preset: match “normal” pacing for garden
+		return 2, 6, 12
+	}
+}
+
+func resolveGardenMoistureCap(s string) int {
+	switch strings.TrimSpace(strings.ToLower(s)) {
+	case config.UIGardenMoistureSoft:
+		return 20
+	case config.UIGardenMoistureTight:
+		return 12
+	default:
+		return 0
+	}
 }
 
 func (rb *RainBackground) buildCloudRow() []string {
@@ -86,7 +187,7 @@ func (rb *RainBackground) buildCloudRow() []string {
 func (rb *RainBackground) Reset() {
 	rb.Drops = make([]RainDrop, 0)
 	startY := 0
-	if rb.Mode == config.UIRainAnimationAdvanced {
+	if config.UIRainAnimationUsesAdvancedLayout(rb.Mode) {
 		startY = 1 // leave top row for clouds
 	}
 	targetCount := rb.Width * 2
@@ -133,7 +234,7 @@ func (rb *RainBackground) Update() {
 
 	minY := 0
 	maxDropY := rb.Height - 1
-	if rb.Mode == config.UIRainAnimationAdvanced {
+	if config.UIRainAnimationUsesAdvancedLayout(rb.Mode) {
 		minY = 1
 		maxDropY = rb.Height - 2 // leave bottom row for flowers
 	}
@@ -166,7 +267,11 @@ func (rb *RainBackground) Update() {
 		}
 
 		// Color gradient: top (dark) → bottom (bright)
-		progress := float64(p.Y-minY) / float64(rb.Height-minY)
+		denom := rb.Height - minY
+		if denom < 1 {
+			denom = 1
+		}
+		progress := float64(p.Y-minY) / float64(denom)
 		if progress < 0 {
 			progress = 0
 		}
@@ -179,9 +284,24 @@ func (rb *RainBackground) Update() {
 			p.ColorIdx = paletteLen - 1
 		}
 
-		// In advanced mode, accumulate flowers when a drop reaches the bottom
-		if rb.Mode == config.UIRainAnimationAdvanced && p.Y >= maxDropY && rb.Flowers != nil && p.X < len(rb.Flowers) {
-			rb.Flowers[p.X].drops++
+		// In advanced / garden mode, accumulate flowers when a drop reaches the bottom
+		if config.UIRainAnimationUsesAdvancedLayout(rb.Mode) && p.Y >= maxDropY && rb.Flowers != nil && p.X < len(rb.Flowers) {
+			atCap := rainAnimModeIsGarden(rb.Mode) && rb.gardenMoistCap > 0 && rb.Flowers[p.X].drops >= rb.gardenMoistCap
+			if !atCap {
+				inc := 1
+				if rainAnimModeIsGarden(rb.Mode) && rb.gardenMoisturePerHit > 1 {
+					inc = rb.gardenMoisturePerHit
+				}
+				if rainAnimModeIsGarden(rb.Mode) && rb.gardenMoistCap > 0 {
+					room := rb.gardenMoistCap - rb.Flowers[p.X].drops
+					if room < inc {
+						inc = room
+					}
+				}
+				if inc > 0 {
+					rb.Flowers[p.X].drops += inc
+				}
+			}
 		}
 	}
 
@@ -202,8 +322,8 @@ func (rb *RainBackground) Update() {
 		}
 	}
 
-	// Periodically refresh cloud row in advanced mode
-	if rb.Mode == config.UIRainAnimationAdvanced && rb.Frame%30 == 0 && rb.Width > 0 {
+	// Periodically refresh cloud row in advanced / garden mode
+	if config.UIRainAnimationUsesAdvancedLayout(rb.Mode) && rb.Frame%30 == 0 && rb.Width > 0 {
 		rb.CloudRow = rb.buildCloudRow()
 	}
 }
@@ -236,7 +356,7 @@ func (rb *RainBackground) Render() string {
 		}
 	}
 
-	if rb.Mode == config.UIRainAnimationAdvanced {
+	if config.UIRainAnimationUsesAdvancedLayout(rb.Mode) {
 		// Top row: clouds
 		if len(rb.CloudRow) >= rb.Width {
 			cloudStyle := lipgloss.NewStyle().Foreground(activeProfile().cloudColor)
@@ -250,8 +370,11 @@ func (rb *RainBackground) Render() string {
 			for x := 0; x < rb.Width && x < len(rb.Flowers); x++ {
 				stage := rb.flowerStage(x)
 				if stage >= 0 {
-					flowerStyle := lipgloss.NewStyle().Foreground(activeProfile().flowerColor)
-					cells[bottomY*rb.Width+x] = flowerStyle.Render(flowerStages[stage])
+					ch := flowerGlyph(rb.Mode, stage)
+					cells[bottomY*rb.Width+x] = flowerStyleForGrowthStage(stage).Render(ch)
+				} else if rainAnimModeIsGarden(rb.Mode) {
+					soil := lipgloss.NewStyle().Foreground(activeProfile().configDim)
+					cells[bottomY*rb.Width+x] = soil.Render("░")
 				}
 			}
 		}
@@ -296,18 +419,26 @@ func (rb *RainBackground) flowerStage(x int) int {
 		return -1
 	}
 	drops := rb.Flowers[x].drops
+	t1, t2, t3 := rb.flowerThresholds()
 	switch {
 	case drops == 0:
 		return -1
-	case drops < 3:
+	case drops < t1:
 		return 0
-	case drops < 8:
+	case drops < t2:
 		return 1
-	case drops < 15:
+	case drops < t3:
 		return 2
 	default:
 		return 3
 	}
+}
+
+func (rb *RainBackground) flowerThresholds() (t1, t2, t3 int) {
+	if rainAnimModeIsGarden(rb.Mode) {
+		return rb.gardenTh1, rb.gardenTh2, rb.gardenTh3
+	}
+	return 3, 8, 15
 }
 
 // RenderRainWave renders a storm-cloud wave strip for the top of the TUI.
@@ -319,7 +450,7 @@ func RenderRainWave(width, frame int, mode string) string {
 		return strings.Repeat("~", width)
 	}
 
-	if mode == config.UIRainAnimationAdvanced {
+	if config.UIRainAnimationUsesAdvancedLayout(mode) {
 		// Render a cloud band across the full width
 		cloudStyle := lipgloss.NewStyle().Foreground(activeProfile().cloudColor)
 		for x := 0; x < width; x++ {

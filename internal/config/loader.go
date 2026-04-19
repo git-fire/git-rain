@@ -97,6 +97,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ui.startup_quote_interval_sec", defaults.UI.StartupQuoteIntervalSec)
 	v.SetDefault("ui.rain_tick_ms", defaults.UI.RainTickMS)
 	v.SetDefault("ui.color_profile", defaults.UI.ColorProfile)
+	v.SetDefault("ui.garden_bloom_preset", defaults.UI.GardenBloomPreset)
+	v.SetDefault("ui.garden_moisture_cap", defaults.UI.GardenMoistureCap)
 }
 
 // Bounded lock acquisition for config.toml: SaveConfig runs from the TUI on

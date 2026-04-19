@@ -25,6 +25,102 @@ const (
 	configRowComingSoon
 )
 
+// Garden settings are shown directly under "Rain animation mode" (row index 4).
+// Logical indices 0–len(configRows)-1 are the static menu; len(configRows)+
+// offset are the garden-only rows (see logicalRowIndex).
+var gardenSettingsConfigRows = []configRow{
+	{label: "Garden bloom pace", kind: configRowEnum, options: []string{
+		config.UIGardenBloomCalm,
+		config.UIGardenBloomNormal,
+		config.UIGardenBloomFast,
+	}},
+	{label: "Garden moisture cap", kind: configRowEnum, options: []string{
+		config.UIGardenMoistureOff,
+		config.UIGardenMoistureSoft,
+		config.UIGardenMoistureTight,
+	}},
+}
+
+func normalizedRainAnimMode(cfg *config.Config) string {
+	if cfg == nil || strings.TrimSpace(cfg.UI.RainAnimationMode) == "" {
+		return config.UIRainAnimationBasic
+	}
+	return cfg.UI.RainAnimationMode
+}
+
+func gardenSettingsRowCount(cfg *config.Config) int {
+	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.UI.RainAnimationMode), config.UIRainAnimationGarden) {
+		return len(gardenSettingsConfigRows)
+	}
+	return 0
+}
+
+func visibleConfigRowCount(cfg *config.Config) int {
+	return len(configRows) + gardenSettingsRowCount(cfg)
+}
+
+// logicalRowIndex maps a visible menu index to the legacy row id used in
+// configRowValue / applyConfigChange (garden rows use ids len(configRows)..).
+func logicalRowIndex(visibleI int, cfg *config.Config) int {
+	g := gardenSettingsRowCount(cfg)
+	if g == 0 {
+		return visibleI
+	}
+	if visibleI < 5 {
+		return visibleI
+	}
+	if visibleI < 5+g {
+		return len(configRows) + (visibleI - 5)
+	}
+	return visibleI - g
+}
+
+func configRowAt(visibleI int, cfg *config.Config) configRow {
+	li := logicalRowIndex(visibleI, cfg)
+	if li >= len(configRows) {
+		gi := li - len(configRows)
+		if gi >= 0 && gi < len(gardenSettingsConfigRows) {
+			return gardenSettingsConfigRows[gi]
+		}
+		return configRows[len(configRows)-1]
+	}
+	return configRows[li]
+}
+
+func clampConfigCursor(cfg *config.Config, cur int) int {
+	n := visibleConfigRowCount(cfg)
+	if n <= 0 {
+		return 0
+	}
+	if cur >= n {
+		return n - 1
+	}
+	if cur < 0 {
+		return 0
+	}
+	return cur
+}
+
+func normalizedGardenBloom(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	switch s {
+	case config.UIGardenBloomCalm, config.UIGardenBloomNormal, config.UIGardenBloomFast:
+		return s
+	default:
+		return config.UIGardenBloomNormal
+	}
+}
+
+func normalizedGardenMoisture(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	switch s {
+	case config.UIGardenMoistureOff, config.UIGardenMoistureSoft, config.UIGardenMoistureTight:
+		return s
+	default:
+		return config.UIGardenMoistureOff
+	}
+}
+
 var configRows = []configRow{
 	{label: "Default mode", kind: configRowEnum, options: []string{
 		"sync-default",
@@ -41,6 +137,7 @@ var configRows = []configRow{
 		config.UIRainAnimationBasic,
 		config.UIRainAnimationAdvanced,
 		config.UIRainAnimationMatrix,
+		config.UIRainAnimationGarden,
 	}},
 	{label: "Show flavor quotes", kind: configRowBool},
 	{label: "Flavor quote behavior", kind: configRowEnum, options: []string{
@@ -57,11 +154,11 @@ var configRows = []configRow{
 	{label: "Custom hex palette", kind: configRowComingSoon},
 }
 
-func configRowValue(i int, cfg *config.Config) string {
+func configRowValue(visibleI int, cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	switch i {
+	switch logicalRowIndex(visibleI, cfg) {
 	case 0:
 		return cfg.Global.DefaultMode
 	case 1:
@@ -99,18 +196,23 @@ func configRowValue(i int, cfg *config.Config) string {
 		return cfg.UI.ColorProfile
 	case 10:
 		return "coming soon"
+	case 11:
+		return normalizedGardenBloom(cfg.UI.GardenBloomPreset)
+	case 12:
+		return normalizedGardenMoisture(cfg.UI.GardenMoistureCap)
 	}
 	return ""
 }
 
-func applyConfigChange(i int, cfg *config.Config, dir int) {
+func applyConfigChange(visibleI int, cfg *config.Config, dir int) {
 	if cfg == nil {
 		return
 	}
-	row := configRows[i]
+	row := configRowAt(visibleI, cfg)
+	li := logicalRowIndex(visibleI, cfg)
 	switch row.kind {
 	case configRowBool:
-		switch i {
+		switch li {
 		case 1:
 			cfg.Global.DisableScan = !cfg.Global.DisableScan
 		case 3:
@@ -120,7 +222,7 @@ func applyConfigChange(i int, cfg *config.Config, dir int) {
 		}
 	case configRowEnum:
 		opts := row.options
-		cur := configRowValue(i, cfg)
+		cur := configRowValue(visibleI, cfg)
 		idx := 0
 		for j, o := range opts {
 			if o == cur {
@@ -129,7 +231,7 @@ func applyConfigChange(i int, cfg *config.Config, dir int) {
 			}
 		}
 		idx = (idx + dir + len(opts)) % len(opts)
-		switch i {
+		switch li {
 		case 0:
 			cfg.Global.DefaultMode = opts[idx]
 		case 2:
@@ -150,6 +252,10 @@ func applyConfigChange(i int, cfg *config.Config, dir int) {
 			applyRainTickChange(cfg, opts, dir)
 		case 9:
 			cfg.UI.ColorProfile = opts[idx]
+		case 11:
+			cfg.UI.GardenBloomPreset = opts[idx]
+		case 12:
+			cfg.UI.GardenMoistureCap = opts[idx]
 		}
 	case configRowComingSoon:
 		// reserved
@@ -207,12 +313,13 @@ func (m RepoSelectorModel) updateConfigView(msg tea.KeyMsg, cmds []tea.Cmd) (tea
 		}
 
 	case "down", "j":
-		if m.configCursor < len(configRows)-1 {
+		if m.configCursor < visibleConfigRowCount(m.cfg)-1 {
 			m.configCursor++
 		}
 
 	case " ", "right", "l":
 		applyConfigChange(m.configCursor, m.cfg, +1)
+		m.configCursor = clampConfigCursor(m.cfg, m.configCursor)
 		if m.cfg != nil {
 			applyColorProfile(m.cfg.UI.ColorProfile)
 		}
@@ -221,6 +328,7 @@ func (m RepoSelectorModel) updateConfigView(msg tea.KeyMsg, cmds []tea.Cmd) (tea
 
 	case "left", "h":
 		applyConfigChange(m.configCursor, m.cfg, -1)
+		m.configCursor = clampConfigCursor(m.cfg, m.configCursor)
 		if m.cfg != nil {
 			applyColorProfile(m.cfg.UI.ColorProfile)
 		}
@@ -273,7 +381,8 @@ func (m RepoSelectorModel) viewConfig() string {
 	valueStyle := lipgloss.NewStyle().Foreground(activeProfile().configValue).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(activeProfile().configDim)
 
-	for i, row := range configRows {
+	for i := 0; i < visibleConfigRowCount(m.cfg); i++ {
+		row := configRowAt(i, m.cfg)
 		cur := " "
 		if m.configCursor == i {
 			cur = ">"
@@ -343,6 +452,7 @@ func (m RepoSelectorModel) syncRuntimeFromConfig(cmds []tea.Cmd) (RepoSelectorMo
 	m.rainAnimationMode = m.cfg.UI.RainAnimationMode
 	if m.rainBg != nil {
 		m.rainBg.Mode = m.rainAnimationMode
+		m.rainBg.ApplyGardenFromConfig(m.cfg)
 	}
 	m.showStartupQuote = m.cfg.UI.ShowStartupQuote
 	m.startupQuoteBehavior = m.cfg.UI.StartupQuoteBehavior

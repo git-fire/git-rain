@@ -10,7 +10,7 @@ import (
 
 func TestRainBackgroundMatrixRenderLineWidths(t *testing.T) {
 	const w, h = 24, 5
-	rb := NewRainBackground(w, h, config.UIRainAnimationMatrix)
+	rb := NewRainBackground(w, h, config.UIRainAnimationMatrix, nil)
 	for i := 0; i < 20; i++ {
 		rb.Update()
 	}
@@ -53,5 +53,62 @@ func TestMatrixVerticalSubliminalCharSingleCell(t *testing.T) {
 				t.Fatalf("vertical subliminal width %d at frame=%d: %q", got, frame, c)
 			}
 		}
+	}
+}
+
+func TestRainBackgroundAdvancedAccumulatesFlowerMoisture(t *testing.T) {
+	rb := NewRainBackground(40, 5, config.UIRainAnimationAdvanced, nil)
+	for i := 0; i < 400; i++ {
+		rb.Update()
+	}
+	maxD := 0
+	for _, f := range rb.Flowers {
+		if f.drops > maxD {
+			maxD = f.drops
+		}
+	}
+	if maxD < 10 {
+		t.Fatalf("expected substantial moisture accumulation, got max drops=%d", maxD)
+	}
+}
+
+func TestRainBackgroundGardenFastPresetReachesFullBloomQuickly(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.UI.RainAnimationMode = config.UIRainAnimationGarden
+	cfg.UI.GardenBloomPreset = config.UIGardenBloomFast
+	rb := NewRainBackground(24, 5, config.UIRainAnimationGarden, &cfg)
+	for i := 0; i < 120; i++ {
+		rb.Update()
+	}
+	found := false
+	for x := 0; x < rb.Width; x++ {
+		if rb.flowerStage(x) == 3 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected full bloom on fast preset within 120 frames")
+	}
+}
+
+func TestRainBackgroundGardenTightMoistureCapReachesFullBloom(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.UI.RainAnimationMode = config.UIRainAnimationGarden
+	cfg.UI.GardenBloomPreset = config.UIGardenBloomNormal
+	cfg.UI.GardenMoistureCap = config.UIGardenMoistureTight
+	rb := NewRainBackground(40, 5, config.UIRainAnimationGarden, &cfg)
+	for i := 0; i < 800; i++ {
+		rb.Update()
+	}
+	found := false
+	for x := 0; x < rb.Width; x++ {
+		if rb.flowerStage(x) == 3 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected at least one column to reach full bloom with tight moisture cap")
 	}
 }

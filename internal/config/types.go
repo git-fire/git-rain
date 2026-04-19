@@ -1,6 +1,8 @@
 // Package config defines the git-rain configuration schema and related constants.
 package config
 
+import "strings"
+
 // Config represents the complete git-rain configuration
 type Config struct {
 	Global GlobalConfig `mapstructure:"global" toml:"global"`
@@ -57,8 +59,16 @@ type UIConfig struct {
 	ShowRainAnimation bool `mapstructure:"show_rain_animation" toml:"show_rain_animation"`
 
 	// Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-	// or "matrix" (falling code glyphs in the same column pattern).
+	// "garden" (advanced layout + optional garden pacing), or "matrix" (falling code glyphs).
 	RainAnimationMode string `mapstructure:"rain_animation_mode" toml:"rain_animation_mode"`
+
+	// GardenBloomPreset tweaks bottom-row growth thresholds when RainAnimationMode is "garden".
+	// Values: "calm", "normal", "fast". Empty uses "normal".
+	GardenBloomPreset string `mapstructure:"garden_bloom_preset" toml:"garden_bloom_preset"`
+
+	// GardenMoistureCap limits rain accumulation per column in garden mode.
+	// Values: "off", "soft", "tight". Empty uses "off".
+	GardenMoistureCap string `mapstructure:"garden_moisture_cap" toml:"garden_moisture_cap"`
 
 	// Show flavor quotes: TUI banner plus CLI motivation lines.
 	ShowStartupQuote bool `mapstructure:"show_startup_quote" toml:"show_startup_quote"`
@@ -91,7 +101,27 @@ const (
 	UIRainAnimationBasic    = "basic"
 	UIRainAnimationAdvanced = "advanced"
 	UIRainAnimationMatrix   = "matrix"
+	UIRainAnimationGarden   = "garden"
+
+	UIGardenBloomCalm   = "calm"
+	UIGardenBloomNormal = "normal"
+	UIGardenBloomFast   = "fast"
+
+	UIGardenMoistureOff   = "off"
+	UIGardenMoistureSoft  = "soft"
+	UIGardenMoistureTight = "tight"
 )
+
+// UIRainAnimationUsesAdvancedLayout reports whether the mode uses the advanced
+// rain field (cloud row, bottom flower row, drop spawn band).
+func UIRainAnimationUsesAdvancedLayout(mode string) bool {
+	switch strings.TrimSpace(strings.ToLower(mode)) {
+	case UIRainAnimationAdvanced, UIRainAnimationGarden:
+		return true
+	default:
+		return false
+	}
+}
 
 // UIColorProfiles returns valid built-in UI color profile names.
 func UIColorProfiles() []string {
