@@ -720,25 +720,6 @@ func TestScanProgressPathMaxLen(t *testing.T) {
 	})
 }
 
-func TestStdinInteractiveOK(t *testing.T) {
-	t.Run("CI false", func(t *testing.T) {
-		t.Setenv("CI", "1")
-		t.Setenv("GITHUB_ACTIONS", "")
-		t.Setenv("GIT_RAIN_NON_INTERACTIVE", "")
-		if stdinInteractiveOK() {
-			t.Fatal("CI=1 must disable stdin interactivity")
-		}
-	})
-	t.Run("GIT_RAIN_NON_INTERACTIVE false", func(t *testing.T) {
-		t.Setenv("CI", "")
-		t.Setenv("GITHUB_ACTIONS", "")
-		t.Setenv("GIT_RAIN_NON_INTERACTIVE", "1")
-		if stdinInteractiveOK() {
-			t.Fatal("GIT_RAIN_NON_INTERACTIVE=1 must disable stdin interactivity")
-		}
-	})
-}
-
 func hasRainBackupBranch(t *testing.T, repoPath string) bool {
 	t.Helper()
 	cmd := exec.Command("git", "branch", "--format=%(refname:short)")

@@ -143,8 +143,8 @@ color_profile = "storm"
 # garden_bloom_duration_base  = 60     # min frames a flower lingers in full bloom
 # garden_bloom_duration_jitter = 40    # extra random frames added to bloom lifetime
 # garden_wither_duration      = 28     # frames a withered plant lingers before re-seeding
-# garden_offspring_min        = 2      # minimum seeds a dying plant scatters
-# garden_offspring_max        = 3      # maximum seeds a dying plant scatters
-# garden_offspring_spread     = 3      # X-jitter half-width around the parent column
+# garden_offspring_min        = 1      # minimum seeds a dying plant scatters
+# garden_offspring_max        = 2      # maximum seeds a dying plant scatters
+# garden_offspring_spread     = 2      # X-jitter half-width around the parent column
 `
 }

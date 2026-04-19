@@ -57,7 +57,8 @@ type UIConfig struct {
 	ShowRainAnimation bool `mapstructure:"show_rain_animation" toml:"show_rain_animation"`
 
 	// Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-	// "matrix" (falling code glyphs), or "garden" (seeds, rain, growth, then sun).
+	// "matrix" (falling code glyphs in the same column pattern), or "garden"
+	// (seeds, rain, growth, then sun).
 	RainAnimationMode string `mapstructure:"rain_animation_mode" toml:"rain_animation_mode"`
 
 	// Show flavor quotes: TUI banner plus CLI motivation lines.
