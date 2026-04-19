@@ -69,35 +69,79 @@ func (rb *RainBackground) initSnowScene() {
 	rb.snowSpawnInitialTrees()
 }
 
-// snowSpawnInitialTrees places evergreen trees immediately using width-scaled
-// slots (stable across runs for a given canvas width).
+// snowTreeSiteFree reports whether a trunk at column x can sit without clipping
+// the 3-cell canopy (/\, /█\, or trunk) and without overlapping the cabin or
+// snowman reservation.
+func (rb *RainBackground) snowTreeSiteFree(x int) bool {
+	if x < 1 || x >= rb.Width-1 {
+		return false
+	}
+	return rb.snowFootprintFree(x-1, 3)
+}
+
+// snowSpawnInitialTrees places scattered evergreens with random trunk columns.
+// Target count and minimum spacing scale with width and height; each new
+// RainBackground (e.g. resize) picks a fresh layout.
 func (rb *RainBackground) snowSpawnInitialTrees() {
 	if rb.Width < 10 || rb.Height < 5 {
 		return
 	}
-	slots := []int{
-		2,
-		max(2, rb.Width/5),
-		max(2, rb.Width*2/7),
-		rb.Width - 3,
+	want := rb.Width/9 + rb.Height/3
+	if want < 2 {
+		want = 2
 	}
-	if rb.Width > 30 {
-		slots = append(slots, max(2, rb.Width/2-8), min(rb.Width-3, rb.Width/2+8))
+	if want > 14 {
+		want = 14
 	}
-	for i, x := range slots {
-		if x < 1 || x >= rb.Width-1 {
+	minGap := rb.Width / 12
+	if minGap < 4 {
+		minGap = 4
+	}
+	if minGap > 10 {
+		minGap = 10
+	}
+
+	const maxAttempts = 500
+	trees := make([]snowTree, 0, want)
+
+	for attempt := 0; attempt < maxAttempts && len(trees) < want; attempt++ {
+		x := 1 + rand.Intn(rb.Width-2)
+		if !rb.snowTreeSiteFree(x) {
 			continue
 		}
-		if !rb.snowFootprintFree(x, 1) {
+		tooClose := false
+		for _, tr := range trees {
+			if absInt(tr.x-x) < minGap {
+				tooClose = true
+				break
+			}
+		}
+		if tooClose {
 			continue
 		}
 		h := 2
-		if rb.Height >= 8 && i%2 == 0 {
+		if rb.Height >= 9 && rand.Intn(100) < 55 {
 			h = 3
 		}
-		frost := 1 + (i % 2)
-		rb.SnowTrees = append(rb.SnowTrees, snowTree{x: x, h: h, frost: frost, birthFrame: i * 19})
+		frost := rand.Intn(3)
+		birth := rand.Intn(67)
+		trees = append(trees, snowTree{x: x, h: h, frost: frost, birthFrame: birth})
 	}
+
+	if len(trees) == 0 {
+		for x := 1; x < rb.Width-1; x++ {
+			if rb.snowTreeSiteFree(x) {
+				h := 2
+				if rb.Height >= 9 {
+					h = 3
+				}
+				trees = append(trees, snowTree{x: x, h: h, frost: 0, birthFrame: 0})
+				break
+			}
+		}
+	}
+
+	rb.SnowTrees = append(rb.SnowTrees[:0], trees...)
 }
 
 func (rb *RainBackground) snowChimneyTop() (int, int) {

@@ -332,6 +332,43 @@ func TestSnowGroundDepthIncreases(t *testing.T) {
 	}
 }
 
+func TestSnowTreesPlacedWithSpacingAndScale(t *testing.T) {
+	const w, h = 48, 10
+	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
+	if len(rb.SnowTrees) < 2 {
+		t.Fatalf("expected at least 2 snow trees for %dx%d, got %d", w, h, len(rb.SnowTrees))
+	}
+	minGap := w / 12
+	if minGap < 4 {
+		minGap = 4
+	}
+	if minGap > 10 {
+		minGap = 10
+	}
+	for i := range rb.SnowTrees {
+		tr := rb.SnowTrees[i]
+		if tr.x < 1 || tr.x >= w-1 {
+			t.Fatalf("tree trunk x out of bounds: %d", tr.x)
+		}
+		if !rb.snowTreeSiteFree(tr.x) {
+			t.Fatalf("tree at x=%d overlaps cabin/snowman or clips canopy", tr.x)
+		}
+		for j := i + 1; j < len(rb.SnowTrees); j++ {
+			if d := absInt(tr.x - rb.SnowTrees[j].x); d < minGap {
+				t.Fatalf("trees closer than minGap %d: x=%d and x=%d", minGap, tr.x, rb.SnowTrees[j].x)
+			}
+		}
+	}
+}
+
+func TestSnowTreesAtLeastOneWhenMarginExists(t *testing.T) {
+	// Wide enough that at least one 3-column canopy clears the cabin footprint.
+	rb := NewRainBackground(16, 8, config.UIRainAnimationSnow)
+	if len(rb.SnowTrees) < 1 {
+		t.Fatalf("expected at least 1 snow tree, got %d", len(rb.SnowTrees))
+	}
+}
+
 func TestSnowmanProgressesWithLandings(t *testing.T) {
 	const w, h = 40, 8
 	rb := NewRainBackground(w, h, config.UIRainAnimationSnow)
