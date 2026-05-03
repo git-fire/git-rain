@@ -1,6 +1,11 @@
 // Package config defines the git-rain configuration schema and related constants.
 package config
 
+import (
+	"math"
+	"strings"
+)
+
 // Config represents the complete git-rain configuration
 type Config struct {
 	Global GlobalConfig `mapstructure:"global" toml:"global"`
@@ -57,9 +62,14 @@ type UIConfig struct {
 	ShowRainAnimation bool `mapstructure:"show_rain_animation" toml:"show_rain_animation"`
 
 	// Animation mode: "basic" (rain drops), "advanced" (clouds + rain + flowers),
-	// "matrix" (falling code glyphs in the same column pattern), or "garden"
-	// (seeds, rain, growth, then sun).
+	// "matrix" (falling code glyphs in the same column pattern), "garden"
+	// (seeds, rain, growth, then sun), or "snow" (winter scene).
 	RainAnimationMode string `mapstructure:"rain_animation_mode" toml:"rain_animation_mode"`
+
+	// RainPanelSize is how tall the animation canvas is in the TUI: "compact",
+	// "comfortable", or "tall". The runtime clamps to the terminal so the panel
+	// still fits (see RainPanelRows).
+	RainPanelSize string `mapstructure:"rain_panel_size" toml:"rain_panel_size"`
 
 	// Show flavor quotes: TUI banner plus CLI motivation lines.
 	ShowStartupQuote bool `mapstructure:"show_startup_quote" toml:"show_startup_quote"`
@@ -111,6 +121,11 @@ type UIConfig struct {
 	// GardenOffspringSpread is the half-width X jitter applied around the
 	// parent column when scattering offspring seeds. 0 = default.
 	GardenOffspringSpread int `mapstructure:"garden_offspring_spread" toml:"garden_offspring_spread,omitempty"`
+
+	// SnowAccumulationRate scales how much ground snow depth each landed flake
+	// adds when rain_animation_mode = "snow". 1 = default; 2 ≈ twice as fast.
+	// Values are rounded to a whole number of depth units per landing (1..8).
+	SnowAccumulationRate float64 `mapstructure:"snow_accumulation_rate" toml:"snow_accumulation_rate,omitempty"`
 }
 
 const (
@@ -127,7 +142,37 @@ const (
 	UIRainAnimationAdvanced = "advanced"
 	UIRainAnimationMatrix   = "matrix"
 	UIRainAnimationGarden   = "garden"
+	UIRainAnimationSnow     = "snow"
+
+	UIRainPanelCompact     = "compact"
+	UIRainPanelComfortable = "comfortable"
+	UIRainPanelTall        = "tall"
 )
+
+// RainPanelRows returns the target animation height in terminal rows for a
+// panel size preset. Unknown or empty values use comfortable.
+func RainPanelRows(preset string) int {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case UIRainPanelCompact:
+		return 5
+	case UIRainPanelTall:
+		return 11
+	default:
+		return 8
+	}
+}
+
+// NormalizeRainPanelSize returns a canonical preset name.
+func NormalizeRainPanelSize(preset string) string {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case UIRainPanelCompact:
+		return UIRainPanelCompact
+	case UIRainPanelTall:
+		return UIRainPanelTall
+	default:
+		return UIRainPanelComfortable
+	}
+}
 
 // UIColorProfiles returns valid built-in UI color profile names.
 func UIColorProfiles() []string {
@@ -138,4 +183,20 @@ func UIColorProfiles() []string {
 		UIColorProfileRainbow,
 		UIColorProfileSynthwave,
 	}
+}
+
+// SnowAccumPerLanding returns ground depth units added per landed snowflake.
+// rate is cfg.UI.SnowAccumulationRate; 0 or negative means 1. Result is in [1, 8].
+func SnowAccumPerLanding(rate float64) int {
+	if rate <= 0 {
+		return 1
+	}
+	n := int(math.Round(rate))
+	if n < 1 {
+		return 1
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
 }

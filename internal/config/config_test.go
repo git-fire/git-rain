@@ -9,9 +9,39 @@ import (
 	"github.com/git-rain/git-rain/internal/config"
 )
 
+func TestRainPanelRowsPresets(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int
+	}{
+		{config.UIRainPanelCompact, 5},
+		{config.UIRainPanelComfortable, 8},
+		{config.UIRainPanelTall, 11},
+		{"", 8},
+		{"unknown-preset", 8},
+	}
+	for _, tc := range tests {
+		if got := config.RainPanelRows(tc.in); got != tc.want {
+			t.Errorf("RainPanelRows(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeRainPanelSize(t *testing.T) {
+	if got := config.NormalizeRainPanelSize(" TALL "); got != config.UIRainPanelTall {
+		t.Errorf("NormalizeRainPanelSize = %q, want %q", got, config.UIRainPanelTall)
+	}
+	if got := config.NormalizeRainPanelSize("compact"); got != config.UIRainPanelCompact {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestDefaultConfig_Values(t *testing.T) {
 	cfg := config.DefaultConfig()
 
+	if cfg.UI.RainPanelSize != config.UIRainPanelComfortable {
+		t.Errorf("default RainPanelSize = %q, want %q", cfg.UI.RainPanelSize, config.UIRainPanelComfortable)
+	}
 	if cfg.Global.BranchMode != "mainline" {
 		t.Errorf("default BranchMode = %q, want %q", cfg.Global.BranchMode, "mainline")
 	}
