@@ -14,6 +14,7 @@ import (
 	"github.com/git-rain/git-rain/internal/config"
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
+	"github.com/git-rain/git-rain/internal/sessionlog"
 )
 
 // ErrCancelled is returned by RunRepoSelector when the user cancels the TUI.
@@ -171,6 +172,13 @@ type RepoSelectorModel struct {
 	cfgPath       string
 	configCursor  int
 	configSaveErr error
+
+	logger        *sessionlog.Logger
+	showLogPanel  bool
+	statusLine    string
+	statusIcon    string
+	logEntries    []sessionlog.LogEntry
+	logExportPath string
 }
 
 // NewRepoSelectorModel creates a new repo selector model (static mode).
@@ -208,6 +216,8 @@ func NewRepoSelectorModel(repos []git.Repository, reg *registry.Registry, regPat
 		currentStartupQuote:  randomStartupRainQuote(),
 		startupQuoteVisible:  true,
 		quoteTickActive:      true,
+		statusLine:           "selector ready",
+		statusIcon:           "ℹ️",
 	}
 }
 
@@ -286,6 +296,8 @@ func NewRepoSelectorModelStream(
 		currentStartupQuote:  randomStartupRainQuote(),
 		startupQuoteVisible:  showStartupQuote,
 		quoteTickActive:      showStartupQuote && startupQuoteIntervalSec > 0,
+		statusLine:           "scan starting",
+		statusIcon:           "🔍",
 	}
 }
 
@@ -301,6 +313,24 @@ func (m RepoSelectorModel) Init() tea.Cmd {
 		cmds = append(cmds, waitForProgress(m.progressChan))
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *RepoSelectorModel) recordStatus(level, action, description string) {
+	entry := sessionlog.LogEntry{
+		Timestamp:   time.Now(),
+		Level:       level,
+		Action:      action,
+		Description: description,
+	}
+	m.statusIcon = statusGlyph(entry)
+	m.statusLine = description
+	m.logEntries = append(m.logEntries, entry)
+	if len(m.logEntries) > 200 {
+		m.logEntries = m.logEntries[len(m.logEntries)-200:]
+	}
+	if m.logger != nil {
+		_ = m.logger.Log(entry)
+	}
 }
 
 func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -321,15 +351,18 @@ func (m RepoSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.scanChan != nil {
 			cmds = append(cmds, waitForRepo(m.scanChan))
 		}
+		m.recordStatus("info", "scan-repo", fmt.Sprintf("discovered %s", repo.Name))
 
 	case scanProgressMsg:
 		m.scanCurrentPath = string(msg)
 		if m.progressChan != nil && !m.progDone {
 			cmds = append(cmds, waitForProgress(m.progressChan))
 		}
+		m.recordStatus("info", "scan-progress", fmt.Sprintf("scanning %s", m.scanCurrentPath))
 
 	case repoChanDoneMsg:
 		m.scanDone = true
+		m.recordStatus("success", "scan-complete", "scan complete")
 
 	case progressChanDoneMsg:
 		m.progDone = true
@@ -477,6 +510,23 @@ func (m RepoSelectorModel) updateMainView(msg tea.KeyMsg, cmds []tea.Cmd) (tea.M
 		if m.cfg != nil {
 			m.cfg.UI.ShowRainAnimation = m.showRain
 			m = m.saveConfig()
+		}
+
+	case "L":
+		m.showLogPanel = !m.showLogPanel
+		if m.showLogPanel {
+			m.recordStatus("info", "log-panel-open", "log panel opened")
+		} else {
+			m.recordStatus("info", "log-panel-close", "log panel closed")
+		}
+
+	case "e":
+		path, err := exportLogEntriesText(m.logEntries)
+		if err != nil {
+			m.recordStatus("error", "log-export-failed", err.Error())
+		} else {
+			m.logExportPath = path
+			m.recordStatus("success", "log-exported", fmt.Sprintf("exported log to %s", path))
 		}
 
 	case "i":
@@ -1000,8 +1050,10 @@ func RunRepoSelectorStream(
 	cfgPath string,
 	reg *registry.Registry,
 	regPath string,
+	logger *sessionlog.Logger,
 ) ([]git.Repository, error) {
 	model := NewRepoSelectorModelStream(scanChan, progressChan, scanDisabled, scanDisabledRunOnly, cfg, cfgPath, reg, regPath)
+	model.logger = logger
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
 	finalModel, err := p.Run()
