@@ -146,7 +146,6 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 		}
 		cmd := exec.Command("git", args...)
 		cmd.Dir = repoPath
-		PrepareNetworkGit(cmd)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			failedReason[remote] = fetchFailureReason(output)
 		}
