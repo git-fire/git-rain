@@ -487,6 +487,7 @@ func TestFetchFailureMessage(t *testing.T) {
 		{"authentication", "Authentication failed for git@github.com", "could not authenticate with remote — check your credentials and try again"},
 		{"permission denied", "git@github.com: Permission denied (publickey)", "could not authenticate with remote — check your credentials and try again"},
 		{"could not read", "fatal: could not read from remote", "could not authenticate with remote — check your credentials and try again"},
+		{"terminal prompts disabled", "fatal: could not read Username for 'https://github.com': terminal prompts disabled", "could not authenticate with remote — check your credentials and try again"},
 		{"401", "fatal: HTTP 401: Unauthorized", "could not authenticate with remote — check your credentials and try again"},
 		{"403", "fatal: HTTP 403 forbidden", "could not authenticate with remote — check your credentials and try again"},
 		{"could not resolve", "fatal: unable to access ...: Could not resolve host", "could not reach remote — check your network and try again"},
