@@ -22,7 +22,7 @@ import (
 	"github.com/git-rain/git-rain/internal/config"
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
-	"github.com/git-rain/git-rain/internal/safety"
+	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/sessionlog"
 	"github.com/git-rain/git-rain/internal/ui"
 )

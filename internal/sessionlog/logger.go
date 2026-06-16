@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/git-rain/git-rain/internal/safety"
+	"github.com/git-fire/git-harness/safety"
 )
 
 // LogEntry matches git-fire's structured session event shape.
