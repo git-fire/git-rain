@@ -201,6 +201,7 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		}
 		cmd := exec.Command("git", fetchArgs...)
 		cmd.Dir = repoPath
+		PrepareNetworkGit(cmd)
 		if output, fetchErr := cmd.CombinedOutput(); fetchErr != nil {
 			// Freeze gracefully — could not reach remote (auth, network, etc.).
 			// This is not a hard failure; the repo is untouched. Try again later.
