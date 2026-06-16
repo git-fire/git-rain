@@ -888,7 +888,6 @@ func fetchOnly(repoPath string, opts git.RainOptions) error {
 	}
 	cmd := exec.Command("git", fetchArgs...)
 	cmd.Dir = repoPath
-	git.PrepareNetworkGit(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s: %w (output: %s)", strings.Join(append([]string{"git"}, fetchArgs...), " "), err, strings.TrimSpace(string(out)))
 	}
