@@ -59,7 +59,13 @@ func (rb *RainBackground) initSnowScene() {
 		}
 	}
 	if rb.Width > 16 {
-		rb.SnowmanX = rb.Width - 5
+		rb.SnowmanX = max(rb.SnowCabinLeft+snowCabinW+3, rb.Width-5)
+		if rb.SnowmanX > rb.Width-3 {
+			rb.SnowmanX = rb.Width - 3
+		}
+		if rb.SnowmanX < 2 {
+			rb.SnowmanX = 2
+		}
 	} else {
 		rb.SnowmanX = rb.SnowCabinLeft - 4
 		if rb.SnowmanX < 2 {
@@ -442,20 +448,25 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 	}
 
 	// Ground snow
+	groundLight := lipgloss.NewStyle().Foreground(lipgloss.Color("#E3F2FD"))
+	groundMed := lipgloss.NewStyle().Foreground(lipgloss.Color("#BBDEFB"))
+	groundDeep := lipgloss.NewStyle().Foreground(lipgloss.Color("#90CAF9"))
+	groundLightF := groundLight.Faint(true)
+	groundMedF := groundMed.Faint(true)
+	groundDeepF := groundDeep.Faint(true)
 	gy := rb.Height - 1
 	for x := 0; x < rb.Width && x < len(rb.SnowGround); x++ {
 		d := rb.SnowGround[x]
-		g := snowGroundGlyph(d)
-		st := lipgloss.NewStyle().Foreground(lipgloss.Color("#E3F2FD"))
+		st, stF := groundLight, groundLightF
 		if d >= 18 {
-			st = lipgloss.NewStyle().Foreground(lipgloss.Color("#BBDEFB"))
+			st, stF = groundMed, groundMedF
 		}
 		if d >= 40 {
-			st = lipgloss.NewStyle().Foreground(lipgloss.Color("#90CAF9"))
+			st, stF = groundDeep, groundDeepF
 		}
-		rb.snowPaintCell(cells, x, gy, g, st)
+		rb.snowPaintCell(cells, x, gy, snowGroundGlyph(d), st)
 		if d >= 55 && gy-1 >= 1 {
-			rb.snowPaintCell(cells, x, gy-1, "░", st.Faint(true))
+			rb.snowPaintCell(cells, x, gy-1, "░", stF)
 		}
 	}
 
@@ -464,7 +475,7 @@ func (rb *RainBackground) paintSnowScene(cells []string) {
 	feetY := rb.Height - 2
 	bellyY := feetY - 1
 	faceY := feetY - 2
-	scarfY := feetY - 3
+	scarfY := bellyY // neck between head (faceY) and body (feetY)
 	hatBrimY := feetY - 4
 	hatTopY := feetY - 5
 	scarfSt := lipgloss.NewStyle().Foreground(lipgloss.Color("#E53935")).Bold(true)
