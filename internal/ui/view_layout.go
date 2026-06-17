@@ -8,12 +8,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// mainViewHeaderBlock returns inner content before the repo list (rain, title, quote, waiting line).
-func (m RepoSelectorModel) mainViewHeaderBlock() string {
+// mainViewHeaderBlockWithRainGate returns inner content before the repo list.
+// includeRainStrip controls the rain canvas; layout measurement must pass
+// rainStripIncludedInLayoutMeasure(), not rainVisible(), to avoid recursion.
+func (m RepoSelectorModel) mainViewHeaderBlockWithRainGate(includeRainStrip bool) string {
 	cw := m.contentWidth()
 	rainW := RainDisplayWidth(m.windowWidth)
 	var s strings.Builder
-	if m.rainVisible() {
+	if includeRainStrip {
 		s.WriteString(m.rainBg.Render())
 		s.WriteString("\n")
 		s.WriteString(m.renderRainWaveStrip(rainW))
@@ -40,6 +42,11 @@ func (m RepoSelectorModel) mainViewHeaderBlock() string {
 		s.WriteString("\n")
 	}
 	return s.String()
+}
+
+// mainViewHeaderBlock returns inner content before the repo list (rain, title, quote, waiting line).
+func (m RepoSelectorModel) mainViewHeaderBlock() string {
+	return m.mainViewHeaderBlockWithRainGate(m.rainVisible())
 }
 
 // mainViewFooterBlock returns help text plus optional scan panel (same as View tail).
@@ -208,7 +215,7 @@ func (m RepoSelectorModel) mainViewRepoListBlock(capacity int) string {
 // when the repo list uses the given scroll *capacity* (see clampScroll visible).
 func (m RepoSelectorModel) mainViewPanelOuterHeight(capacity int) int {
 	innerW := PanelBlockWidth(m.windowWidth)
-	body := m.mainViewHeaderBlock() + m.mainViewRepoListBlock(capacity) + m.mainViewFooterBlock()
+	body := m.mainViewHeaderBlockWithRainGate(m.rainStripIncludedInLayoutMeasure()) + m.mainViewRepoListBlock(capacity) + m.mainViewFooterBlock()
 	return lipgloss.Height(renderMainPanelBox(innerW, body))
 }
 
@@ -224,7 +231,7 @@ func (m RepoSelectorModel) mainViewMeasuredRepoListCapacity() int {
 		return 1
 	}
 	innerW := PanelBlockWidth(m.windowWidth)
-	header := m.mainViewHeaderBlock()
+	header := m.mainViewHeaderBlockWithRainGate(m.rainStripIncludedInLayoutMeasure())
 	footer := m.mainViewFooterBlock()
 	outerHeight := func(capacity int) int {
 		body := header + m.mainViewRepoListBlock(capacity) + footer
@@ -251,10 +258,10 @@ func (m RepoSelectorModel) mainViewMeasuredRepoListCapacity() int {
 
 // --- Ignored repositories view (same height measurement as main view) ---
 
-func (m RepoSelectorModel) ignoredViewHeaderBlock() string {
+func (m RepoSelectorModel) ignoredViewHeaderBlockWithRainGate(includeRainStrip bool) string {
 	rainW := RainDisplayWidth(m.windowWidth)
 	var s strings.Builder
-	if m.rainVisible() {
+	if includeRainStrip {
 		s.WriteString(m.rainBg.Render())
 		s.WriteString("\n")
 		s.WriteString(m.renderRainWaveStrip(rainW))
@@ -267,6 +274,10 @@ func (m RepoSelectorModel) ignoredViewHeaderBlock() string {
 		s.WriteString("\n\n")
 	}
 	return s.String()
+}
+
+func (m RepoSelectorModel) ignoredViewHeaderBlock() string {
+	return m.ignoredViewHeaderBlockWithRainGate(m.rainVisible())
 }
 
 func (m RepoSelectorModel) ignoredViewFooterBlock() string {
@@ -351,7 +362,7 @@ func (m RepoSelectorModel) ignoredViewListBlock(capacity int) string {
 
 func (m RepoSelectorModel) ignoredViewPanelOuterHeight(capacity int) int {
 	innerW := PanelBlockWidth(m.windowWidth)
-	body := m.ignoredViewHeaderBlock() + m.ignoredViewListBlock(capacity) + m.ignoredViewFooterBlock()
+	body := m.ignoredViewHeaderBlockWithRainGate(m.rainStripIncludedInLayoutMeasure()) + m.ignoredViewListBlock(capacity) + m.ignoredViewFooterBlock()
 	return lipgloss.Height(renderMainPanelBox(innerW, body))
 }
 
@@ -364,7 +375,7 @@ func (m RepoSelectorModel) ignoredMeasuredListCapacity() int {
 		return 1
 	}
 	innerW := PanelBlockWidth(m.windowWidth)
-	header := m.ignoredViewHeaderBlock()
+	header := m.ignoredViewHeaderBlockWithRainGate(m.rainStripIncludedInLayoutMeasure())
 	footer := m.ignoredViewFooterBlock()
 	outerHeight := func(capacity int) int {
 		body := header + m.ignoredViewListBlock(capacity) + footer
