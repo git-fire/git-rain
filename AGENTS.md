@@ -27,4 +27,12 @@ These notes apply to humans and to automated agents (including Cloud Agents).
 
 ---
 
+## Cursor Cloud specific instructions
+
+`git-rain` is a single standalone Go CLI (no servers, DBs, or external services). Standard commands live in `Makefile` / `CLAUDE.md` (`make build`, `make test-race`, `make lint`, `make run ARGS=...`). Non-obvious caveats for this environment:
+
+- **`make lint` is only `go vet`.** CI's full `lint` job uses `golangci-lint` (pinned `v2.11.4`) and `shellcheck` on `scripts/install.sh`; neither is in the update script. Install on demand for CI parity: `curl -fsSL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.11.4` and `sudo apt-get install -y shellcheck`. Then `golangci-lint run --timeout=5m`.
+- **`make test-race` is slow (~60–75s)** because `internal/git` tests shell out to the real `git` binary. This is expected, not a hang.
+- **Running the CLI mutates user state.** It persists a registry at `~/.config/git-rain/repos.toml` and config at `~/.config/git-rain/config.toml`, so repos discovered in one run are remembered on the next. For isolated runs/tests, always pass `--path <sandbox>` (and `--dry-run` to preview without touching git).
+- **Manual end-to-end check:** create a bare remote + a clone under a scan dir, advance the remote, then `./git-rain --sync --path <dir>` fast-forwards the local branch. Requires `git user.name`/`user.email` to be set (already configured here).
 
