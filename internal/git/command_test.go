@@ -1,6 +1,8 @@
 package git
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"strings"
 	"testing"
@@ -16,11 +18,17 @@ func TestFetchFailureReason_TerminalPromptsDisabled(t *testing.T) {
 	}
 }
 
-func TestNetworkFetch_UnauthenticatedHTTPSFailsWithoutPrompt(t *testing.T) {
+func TestNetworkFetch_UnauthenticatedHTTPFailsWithoutPrompt(t *testing.T) {
+	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="git-rain-test"`)
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+	}))
+	defer authServer.Close()
+
 	repo := testutil.CreateTestRepo(t, testutil.RepoOptions{
 		Name: "https-fetch-repo",
 		Remotes: map[string]string{
-			"origin": "https://github.com/git-rain/nonexistent-repo-auth-test.git",
+			"origin": authServer.URL + "/private-repo.git",
 		},
 	})
 
