@@ -367,6 +367,8 @@ visual density (more or fewer seeds, longer or shorter blooms) for clarity.
 
 `git-rain --rain` opens an interactive picker. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking. After you confirm, the tool runs the **default full fetch** (`git fetch --all`, prune opt-in) unless you passed **`--fetch-mainline`**, or **full branch hydration** is implied by **`--sync`**, **`--risky`**, **`risky_mode`** in config, a **non-mainline `branch_mode`**, or **any `--branch-mode`** on the CLI. Quitting (**`q`** or **`ctrl+c`**) cancels the in-progress scan (in-flight `git` subprocesses are aborted via the scan context); **`ctrl+c`** outside raw TTY mode is treated like cancel.
 
+Status strip and optional log panel are driven from structured session events. Confirming selection still exits TUI and runs fetch/sync work in normal CLI output.
+
 **Key bindings:**
 
 | Key | Action |
@@ -377,6 +379,8 @@ visual density (more or fewer seeds, longer or shorter blooms) for clarity.
 | `q` / `ctrl+c` | Abort picker |
 | `c` / `Esc` | Back from settings (ignored list uses `Esc` / `i` / `b`) |
 | `↑` / `↓` | Navigate |
+| `Shift+L` | Toggle in-TUI log panel |
+| `e` | Export visible TUI log buffer to `~/.cache/git-rain/exports/` |
 
 ## Safe Mode vs Risky Mode
 
