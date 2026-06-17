@@ -364,6 +364,18 @@ type RainBackground struct {
 	GardenPlots []gardenPlot
 	GardenSunny bool         // garden mode: rain finished, sky cleared
 	Garden      GardenTuning // pacing knobs (always resolved to non-zero values)
+
+	// Snow mode (winter scene); used only when Mode == UIRainAnimationSnow.
+	SnowGround            []int
+	SnowCabinLeft         int
+	SnowTrees             []snowTree
+	SnowSmoke             []snowSmoke
+	SnowmanPhase          int
+	SnowmanX              int
+	SnowmanBuild          int
+	SnowmanAux            int // frame counter for accessory delays
+	SnowCabinFrost        int
+	snowAccumPerLanding   int // ground depth per landed flake (1..8)
 }
 
 // NewRainBackground creates a new rain background
@@ -393,6 +405,18 @@ func (rb *RainBackground) SetGardenTuning(t GardenTuning) {
 	rb.Garden = ResolveGardenTuning(t)
 }
 
+// SetSnowAccumPerLanding sets how many ground depth units each snowflake adds
+// when it lands (snow mode only). Values are clamped to [1, 8].
+func (rb *RainBackground) SetSnowAccumPerLanding(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > 8 {
+		n = 8
+	}
+	rb.snowAccumPerLanding = n
+}
+
 func (rb *RainBackground) buildCloudRow() []string {
 	row := make([]string, rb.Width)
 	for x := 0; x < rb.Width; x++ {
@@ -412,9 +436,12 @@ func (rb *RainBackground) Reset() {
 	if rb.Mode == config.UIRainAnimationGarden && rb.Width > 0 {
 		rb.GardenPlots = make([]gardenPlot, rb.Width)
 	}
+	if rb.Mode == config.UIRainAnimationSnow && rb.Width > 0 {
+		rb.initSnowScene()
+	}
 	startY := 0
-	if rb.Mode == config.UIRainAnimationAdvanced || rb.Mode == config.UIRainAnimationGarden {
-		startY = 1 // leave top row for clouds / sky
+	if rb.Mode == config.UIRainAnimationAdvanced || rb.Mode == config.UIRainAnimationGarden || rb.Mode == config.UIRainAnimationSnow {
+		startY = 1 // leave top row for sky / clouds / night
 	}
 	targetCount := rb.Width * 2
 	if rb.Mode == config.UIRainAnimationGarden {
@@ -446,6 +473,10 @@ func (rb *RainBackground) spawnDrop(minY int) {
 				char = c
 			}
 		}
+	}
+	if rb.Mode == config.UIRainAnimationSnow {
+		char = snowflakeChars[rand.Intn(len(snowflakeChars))]
+		speed = 2 + rand.Intn(2)
 	}
 	drop := RainDrop{
 		X:        rand.Intn(rb.Width),
@@ -663,9 +694,9 @@ func (rb *RainBackground) Update() {
 
 	minY := 0
 	maxDropY := rb.Height - 1
-	if rb.Mode == config.UIRainAnimationAdvanced || rb.Mode == config.UIRainAnimationGarden {
+	if rb.Mode == config.UIRainAnimationAdvanced || rb.Mode == config.UIRainAnimationGarden || rb.Mode == config.UIRainAnimationSnow {
 		minY = 1
-		maxDropY = rb.Height - 2 // leave bottom row for plants / flowers
+		maxDropY = rb.Height - 2 // leave bottom row for ground / plants / snow pile
 	}
 
 	if rb.Mode == config.UIRainAnimationGarden && rb.GardenSunny {
@@ -751,6 +782,16 @@ func (rb *RainBackground) Update() {
 			}
 			p.Age = p.MaxAge
 		}
+
+		if rb.Mode == config.UIRainAnimationSnow && p.Y >= maxDropY && p.Y < rb.Height && rb.SnowGround != nil && p.X >= 0 && p.X < len(rb.SnowGround) {
+			add := rb.snowAccumPerLanding
+			if add < 1 {
+				add = 1
+			}
+			rb.SnowGround[p.X] += add
+			rb.snowNoteFlakeLand(p.X)
+			p.Age = p.MaxAge
+		}
 	}
 
 	// Remove dead drops (off screen or expired)
@@ -775,13 +816,17 @@ func (rb *RainBackground) Update() {
 	}
 
 	// Periodically refresh cloud row in advanced / garden (storm) mode
-	if (rb.Mode == config.UIRainAnimationAdvanced || rb.Mode == config.UIRainAnimationGarden) && rb.Frame%30 == 0 && rb.Width > 0 {
+	if (rb.Mode == config.UIRainAnimationAdvanced || rb.Mode == config.UIRainAnimationGarden || rb.Mode == config.UIRainAnimationSnow) && rb.Frame%30 == 0 && rb.Width > 0 {
 		rb.CloudRow = rb.buildCloudRow()
 	}
 
 	if rb.Mode == config.UIRainAnimationGarden {
 		rb.gardenAdvancePlots()
 		rb.gardenMaybeFinishStorm()
+	}
+
+	if rb.Mode == config.UIRainAnimationSnow {
+		rb.snowAdvanceScene()
 	}
 }
 
@@ -816,6 +861,8 @@ func (rb *RainBackground) Render() string {
 	switch rb.Mode {
 	case config.UIRainAnimationGarden:
 		rb.paintGardenOverlays(cells)
+	case config.UIRainAnimationSnow:
+		rb.paintSnowScene(cells)
 	case config.UIRainAnimationAdvanced:
 		// Top row: clouds
 		if len(rb.CloudRow) >= rb.Width {
@@ -1264,6 +1311,24 @@ func RenderRainWave(width, frame int, mode string, gardenSunny bool) string {
 		return result.String()
 	}
 
+	if mode == config.UIRainAnimationSnow {
+		night := lipgloss.NewStyle().Foreground(lipgloss.Color("#37474F"))
+		snow := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECEFF1"))
+		for x := 0; x < width; x++ {
+			phase := float64(frame)*0.03 + float64(x)*0.11
+			ch := "·"
+			if int(phase*3)%4 == 0 {
+				ch = " "
+			} else if int(phase*5)%7 == 0 {
+				ch = snow.Render("*")
+				result.WriteString(ch)
+				continue
+			}
+			result.WriteString(night.Render(ch))
+		}
+		return result.String()
+	}
+
 	if mode == config.UIRainAnimationMatrix {
 		for x := 0; x < width; x++ {
 			phase := float64(frame)*0.075 + float64(x)*0.24
@@ -1321,6 +1386,9 @@ func rainPaletteForMode(mode string) []lipgloss.Color {
 	if mode == config.UIRainAnimationMatrix {
 		return matrixRainColors
 	}
+	if mode == config.UIRainAnimationSnow {
+		return snowRainColors
+	}
 	if mode == config.UIRainAnimationGarden {
 		return gardenRainColors
 	}
@@ -1366,4 +1434,16 @@ var gardenRainColors = []lipgloss.Color{
 	lipgloss.Color("#7986CB"),
 	lipgloss.Color("#9FA8DA"),
 	lipgloss.Color("#C5CAE9"),
+}
+
+// snowRainColors is a cool snowflake palette (high → light).
+var snowRainColors = []lipgloss.Color{
+	lipgloss.Color("#263238"),
+	lipgloss.Color("#37474F"),
+	lipgloss.Color("#455A64"),
+	lipgloss.Color("#78909C"),
+	lipgloss.Color("#90A4AE"),
+	lipgloss.Color("#B0BEC5"),
+	lipgloss.Color("#CFD8DC"),
+	lipgloss.Color("#ECEFF1"),
 }
