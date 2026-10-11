@@ -346,25 +346,6 @@ func printRainSummary(totals rainTotals, runCtx context.Context) error {
 	return nil
 }
 
-// processRainRepositories runs fetch or full rain for each repository sequentially
-// and accumulates outcome counts. Each repo's output is written as a single block
-// directly to stdout. Used for the --rain TUI post-processing path; the default
-// CLI run uses runRainDefaultStream for parallel execution.
-func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals) {
-	for i, repo := range repos {
-		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
-			break
-		}
-		var buf strings.Builder
-		delta := runRainOnRepo(reg, repo, rainOpts, fullSync, i+1, len(repos), &buf)
-		_, _ = io.WriteString(os.Stdout, buf.String())
-		totals.updated += delta.updated
-		totals.skipped += delta.skipped
-		totals.frozen += delta.frozen
-		totals.failed += delta.failed
-	}
-}
-
 // runRainOnRepo runs the rain operation for a single repository, writing its
 // entire output block (header + branch lines + trailing blank line) into out.
 // totalStr is rendered as "[N/M] reponame"; pass "?" for M when the total is
@@ -612,7 +593,7 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 	}
 	fmt.Println()
 
-	return runRainOnRepos(reg, selected, rainOpts, fullSync)
+	return runRainOnRepos(reg, selected, rainOpts, fullSync, cfg.Global.FetchWorkers)
 }
 
 // fetchWorkerCount returns the per-run parallel fetch worker count, clamped
@@ -866,7 +847,7 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 }
 
 // runRainOnRepos runs fetch or full rain on a pre-selected list of repos.
-func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.RainOptions, fullSync bool) error {
+func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.RainOptions, fullSync bool, fetchWorkers int) error {
 	fmt.Println("🌧️  Git Rain")
 	if fullSync {
 		if opts.RiskyMode {
@@ -881,8 +862,7 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	}
 	fmt.Println()
 
-	totals := rainTotals{}
-	processRainRepositories(reg, repos, opts, fullSync, &totals)
+	totals := runRainReposParallel(reg, repos, opts, fullSync, fetchWorkers)
 
 	return printRainSummary(totals, opts.RunCtx)
 }
