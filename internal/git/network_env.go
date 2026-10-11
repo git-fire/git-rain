@@ -21,7 +21,7 @@ func applyFailFastNetworkEnv(cmd *exec.Cmd) {
 	env = setEnvIfUnset(env, "GIT_HTTP_LOW_SPEED_LIMIT", defaultHTTPLowSpeedLimit)
 	env = setEnvIfUnset(env, "GIT_HTTP_LOW_SPEED_TIME", defaultHTTPLowSpeedTimeSec)
 
-	if !envHasPrefix(env, "GIT_SSH_COMMAND=") && !repoHasCoreSSHCommand(cmd.Dir) {
+	if !envHasPrefix(env, "GIT_SSH_COMMAND=") && !envHasPrefix(env, "GIT_SSH=") && !repoHasCoreSSHCommand(cmd.Dir) {
 		sshCmd := fmt.Sprintf("ssh -o BatchMode=yes -o ConnectTimeout=%d", defaultSSHConnectTimeoutSec)
 		env = append(env, "GIT_SSH_COMMAND="+sshCmd)
 	}
