@@ -72,7 +72,7 @@ func RunNetworkGit(parent context.Context, cmd *exec.Cmd, timeoutSec int) ([]byt
 		return combined.Bytes(), nil
 	case <-runCtx.Done():
 		killCmdProcessGroup(wrapped.Process)
-		_ = <-waitDone
+		<-waitDone
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) && timeoutSec > 0 {
 			return combined.Bytes(), &FetchTimedOutError{Seconds: timeoutSec}
 		}
