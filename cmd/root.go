@@ -394,7 +394,7 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	if !fullSync && !rainFetchMainline {
 		if fetchErr := fetchOnly(repoOpts.RunCtx, repo.Path, repoOpts); fetchErr != nil {
 			if errors.Is(fetchErr, context.Canceled) {
-				_, _ = fmt.Fprintln(out, "    ~  skipped\n")
+				_, _ = fmt.Fprintln(out, "    ~  skipped")
 				_, _ = fmt.Fprintln(out)
 				return delta
 			}
@@ -432,6 +432,11 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 
 	res, rainErr := git.RainRepository(repo.Path, repoOpts)
 	if rainErr != nil {
+		if errors.Is(rainErr, context.Canceled) {
+			_, _ = fmt.Fprintln(out, "    ~  skipped")
+			_, _ = fmt.Fprintln(out)
+			return delta
+		}
 		_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
 		delta.failed++
 		return delta
