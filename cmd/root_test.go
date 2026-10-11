@@ -30,6 +30,8 @@ func resetFlags() {
 	rainPrune = false
 	rainNoPrune = false
 	forceUnlockRegistry = false
+	rainJSON = false
+	rainNonInteractive = false
 }
 
 func setTestUserDirs(t *testing.T, home string) {
