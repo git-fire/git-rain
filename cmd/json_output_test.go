@@ -170,6 +170,54 @@ func TestRunRain_JSONSkippedSummaryOutcome(t *testing.T) {
 	}
 }
 
+func TestRunRain_JSONUpToDateSummaryOutcome(t *testing.T) {
+	tmpHome := t.TempDir()
+	setTestUserDirs(t, tmpHome)
+
+	scenario := testutil.NewScenario(t)
+	remote := scenario.CreateBareRepo("remote-json-current")
+	repo := scenario.CreateRepo("json-current").
+		WithRemote("origin", remote).
+		AddFile("tracked.txt", "v1\n").
+		Commit("init")
+	repo.Push("origin", repo.GetDefaultBranch())
+
+	resetFlags()
+	rainPath = filepath.Dir(repo.Path())
+	rainSync = true
+	rainJSON = true
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = w
+	runErr := runRain(rootCmd, nil)
+	_ = w.Close()
+	os.Stdout = oldStdout
+
+	var buf strings.Builder
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if runErr != nil {
+		t.Fatalf("runRain json sync error = %v\n%s", runErr, buf.String())
+	}
+
+	var doc jsonRunDocument
+	if err := json.Unmarshal([]byte(buf.String()), &doc); err != nil {
+		t.Fatalf("json decode: %v\nraw:\n%s", err, buf.String())
+	}
+	if len(doc.Repositories) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(doc.Repositories))
+	}
+	if doc.Repositories[0].SummaryOutcome != git.RainOutcomeUpToDate {
+		t.Fatalf("summary_outcome = %q, want %q (already-synced --sync)",
+			doc.Repositories[0].SummaryOutcome, git.RainOutcomeUpToDate)
+	}
+}
+
 func TestWriteJSONRun_NilReposEncodesEmptyArray(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJSONRun(&buf, jsonRunMeta{}, rainTotals{}, nil); err != nil {

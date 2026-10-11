@@ -508,24 +508,31 @@ func TestFetchFailureMessage(t *testing.T) {
 }
 
 func TestSummarizeBranchRun(t *testing.T) {
+	upToDate := []git.RainBranchResult{{Outcome: git.RainOutcomeUpToDate}}
+	skipped := []git.RainBranchResult{
+		{Outcome: git.RainOutcomeUpToDate},
+		{Outcome: git.RainOutcomeSkippedLocalAhead},
+	}
 	tests := []struct {
-		name                             string
-		failed, frozen, updated, skipped int
-		want                             string
+		name                    string
+		failed, frozen, updated int
+		branches                []git.RainBranchResult
+		want                    string
 	}{
-		{"all zero is up-to-date", 0, 0, 0, 0, git.RainOutcomeUpToDate},
-		{"updated", 0, 0, 1, 0, git.RainOutcomeUpdated},
-		{"skipped only", 0, 0, 0, 2, "skipped"},
-		{"updated beats skipped", 0, 0, 1, 3, git.RainOutcomeUpdated},
-		{"frozen beats updated", 0, 1, 2, 0, git.RainOutcomeFrozen},
-		{"failed beats all", 1, 1, 1, 1, git.RainOutcomeFailed},
+		{"all zero is up-to-date", 0, 0, 0, nil, git.RainOutcomeUpToDate},
+		{"up-to-date branches only", 0, 0, 0, upToDate, git.RainOutcomeUpToDate},
+		{"updated", 0, 0, 1, upToDate, git.RainOutcomeUpdated},
+		{"skipped only", 0, 0, 0, skipped, "skipped"},
+		{"updated beats skipped", 0, 0, 1, skipped, git.RainOutcomeUpdated},
+		{"frozen beats updated", 0, 1, 2, nil, git.RainOutcomeFrozen},
+		{"failed beats all", 1, 1, 1, skipped, git.RainOutcomeFailed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := summarizeBranchRun(tt.failed, tt.frozen, tt.updated, tt.skipped)
+			got := summarizeBranchRun(tt.failed, tt.frozen, tt.updated, tt.branches)
 			if got != tt.want {
-				t.Fatalf("summarizeBranchRun(%d,%d,%d,%d) = %q, want %q",
-					tt.failed, tt.frozen, tt.updated, tt.skipped, got, tt.want)
+				t.Fatalf("summarizeBranchRun(%d,%d,%d,branches) = %q, want %q",
+					tt.failed, tt.frozen, tt.updated, got, tt.want)
 			}
 		})
 	}

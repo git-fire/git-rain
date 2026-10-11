@@ -429,7 +429,7 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 		delta.skipped += res.Skipped
 		delta.frozen += res.Frozen
 		delta.failed += res.Failed
-		report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated, res.Skipped)
+		report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated, res.Branches)
 		return delta, report
 	}
 
@@ -464,11 +464,13 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	delta.skipped += res.Skipped
 	delta.frozen += res.Frozen
 	delta.failed += res.Failed
-	report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated, res.Skipped)
+	report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated, res.Branches)
 	return delta, report
 }
 
-func summarizeBranchRun(failed, frozen, updated, skipped int) string {
+// summarizeBranchRun rolls up per-branch outcomes for a repo. RainResult.Skipped
+// also counts up-to-date branches, so true skips are detected from branch outcomes.
+func summarizeBranchRun(failed, frozen, updated int, branches []git.RainBranchResult) string {
 	if failed > 0 {
 		return git.RainOutcomeFailed
 	}
@@ -478,8 +480,10 @@ func summarizeBranchRun(failed, frozen, updated, skipped int) string {
 	if updated > 0 {
 		return git.RainOutcomeUpdated
 	}
-	if skipped > 0 {
-		return "skipped"
+	for _, br := range branches {
+		if strings.HasPrefix(br.Outcome, "skipped") {
+			return "skipped"
+		}
 	}
 	return git.RainOutcomeUpToDate
 }
