@@ -151,7 +151,7 @@ func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		for {
 			c, aerr := ln.Accept()
