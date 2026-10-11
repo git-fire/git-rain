@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-runewidth"
@@ -212,6 +214,10 @@ func runRain(_ *cobra.Command, _ []string) error {
 		return runDryRun(opts, rainOpts, fullSync, cfg)
 	}
 
+	runCtx, stopRun := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopRun()
+	rainOpts.RunCtx = runCtx
+
 	if rainRain {
 		return runRainTUIStream(cfg, reg, regPath, opts, rainOpts, fullSync)
 	}
@@ -319,12 +325,36 @@ type rainTotals struct {
 	failed  int
 }
 
+func printRainSummary(totals rainTotals, runCtx context.Context) error {
+	fmt.Println(strings.Repeat("─", 48))
+	if runCtx != nil && runCtx.Err() != nil {
+		fmt.Printf("🌧  rain interrupted — %d updated, %d skipped, %d frozen, %d failed\n",
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("interrupted")
+	}
+	if totals.failed > 0 {
+		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
+	}
+	if totals.frozen > 0 {
+		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
+			totals.updated, totals.skipped, totals.frozen)
+		return nil
+	}
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
+	return nil
+}
+
 // processRainRepositories runs fetch or full rain for each repository sequentially
 // and accumulates outcome counts. Each repo's output is written as a single block
 // directly to stdout. Used for the --rain TUI post-processing path; the default
 // CLI run uses runRainDefaultStream for parallel execution.
 func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals) {
 	for i, repo := range repos {
+		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+			break
+		}
 		var buf strings.Builder
 		delta := runRainOnRepo(reg, repo, rainOpts, fullSync, i+1, len(repos), &buf)
 		_, _ = io.WriteString(os.Stdout, buf.String())
@@ -483,7 +513,11 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 // The filesystem scan runs concurrently; repos stream into the picker as they
 // are discovered. After confirmation, the same default or --sync behavior runs.
 func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
-	ctx, cancelScan := context.WithCancel(context.Background())
+	scanParent := rainOpts.RunCtx
+	if scanParent == nil {
+		scanParent = context.Background()
+	}
+	ctx, cancelScan := context.WithCancel(scanParent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -667,7 +701,11 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	}
 	fmt.Println()
 
-	ctx, cancelScan := context.WithCancel(context.Background())
+	scanParent := rainOpts.RunCtx
+	if scanParent == nil {
+		scanParent = context.Background()
+	}
+	ctx, cancelScan := context.WithCancel(scanParent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -708,6 +746,8 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 			const scanPrefix = "   🔍 Scanning… "
 			for {
 				select {
+				case <-ctx.Done():
+					return
 				case <-scanDone:
 					return
 				case <-tick.C:
@@ -767,6 +807,9 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		go func() {
 			defer workersWG.Done()
 			for repo := range repoChan {
+				if ctx.Err() != nil {
+					break
+				}
 				current := int(atomic.AddInt64(&seq, 1))
 				total := int(atomic.LoadInt64(&totalFound))
 				// While the scan is still running, total may equal current
@@ -805,6 +848,9 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	defer printMu.Unlock()
 
 	if atomic.LoadInt64(&seq) == 0 {
+		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+			return fmt.Errorf("interrupted")
+		}
 		fmt.Println("No git repositories found.")
 		return nil
 	}
@@ -816,19 +862,7 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		failed:  int(atomic.LoadInt64(&failed)),
 	}
 
-	fmt.Println(strings.Repeat("─", 48))
-	if totals.failed > 0 {
-		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totals.updated, totals.skipped, totals.frozen, totals.failed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
-	}
-	if totals.frozen > 0 {
-		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totals.updated, totals.skipped, totals.frozen)
-		return nil
-	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
-	return nil
+	return printRainSummary(totals, rainOpts.RunCtx)
 }
 
 // runRainOnRepos runs fetch or full rain on a pre-selected list of repos.
@@ -850,19 +884,7 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	totals := rainTotals{}
 	processRainRepositories(reg, repos, opts, fullSync, &totals)
 
-	fmt.Println(strings.Repeat("─", 48))
-	if totals.failed > 0 {
-		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totals.updated, totals.skipped, totals.frozen, totals.failed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
-	}
-	if totals.frozen > 0 {
-		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totals.updated, totals.skipped, totals.frozen)
-		return nil
-	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
-	return nil
+	return printRainSummary(totals, opts.RunCtx)
 }
 
 func applyRepoFetchPrune(repoPath string, base git.RainOptions, absPath string, reg *registry.Registry) (git.RainOptions, error) {
