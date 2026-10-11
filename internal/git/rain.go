@@ -232,7 +232,7 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		output, fetchErr := RunNetworkGit(runCtx, cmd, NetworkGitParamsFromRain(opts))
 		if fetchErr != nil {
 			if errors.Is(fetchErr, context.Canceled) {
-				return result, nil
+				return result, fetchErr
 			}
 			// Freeze gracefully — could not reach remote (auth, network, etc.).
 			// This is not a hard failure; the repo is untouched. Try again later.

@@ -506,6 +506,15 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	report.Operation = "hydrate"
 	res, rainErr := git.RainRepository(repo.Path, repoOpts)
 	if rainErr != nil {
+		if errors.Is(rainErr, context.Canceled) {
+			if emitHuman {
+				_, _ = fmt.Fprintln(out, "    ~  skipped")
+				_, _ = fmt.Fprintln(out)
+			}
+			delta.skipped++
+			report.SummaryOutcome = "skipped"
+			return delta, report
+		}
 		msg := safety.SanitizeText(rainErr.Error())
 		if emitHuman {
 			_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", msg)
