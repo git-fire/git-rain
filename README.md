@@ -307,6 +307,9 @@ scan_depth   = 5                      # max directory depth (default in app: 10)
 scan_workers = 8                    # parallel scan workers
 fetch_workers = 4                   # parallel per-repo operations (default in app: 4)
 fetch_timeout_sec = 120             # per-fetch network deadline (0 = no timeout)
+fetch_retry_max_attempts = 2        # retry transient network failures only
+fetch_retry_initial_backoff_sec = 2
+fetch_retry_max_backoff_sec = 30
 risky_mode   = false                # allow destructive realignment on full hydration path
 branch_mode  = "mainline"           # full hydration: mainline | checked-out | all-local | all-branches
 fetch_prune  = false                # pass --prune on fetch when true (default off; see README warning)
@@ -394,7 +397,7 @@ rain_panel_size = "comfortable"
 
 ## Interactive TUI
 
-`git-rain --rain` opens an interactive picker. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking. After you confirm, selected repos run through the same **bounded `fetch_workers` pool** as the default CLI (so one stalled remote does not block the rest). The tool runs the **default full fetch** (`git fetch --all`, prune opt-in) unless you passed **`--fetch-mainline`**, or **full branch hydration** is implied by **`--sync`**, **`--risky`**, **`risky_mode`** in config, a **non-mainline `branch_mode`**, or **any `--branch-mode`** on the CLI. Quitting (**`q`** or **`ctrl+c`**) cancels the in-progress scan (in-flight `git` subprocesses are aborted via the scan context); **`ctrl+c`** outside raw TTY mode is treated like cancel.
+`git-rain --rain` opens an interactive picker. Repositories stream in as the filesystem scan finds them — no waiting for the full scan to complete before you can start picking. After you confirm, selected repos run through the same **bounded `fetch_workers` pool** as the default CLI (so one stalled remote does not block the rest). The tool runs the **default full fetch** (`git fetch --all`, prune opt-in) unless you passed **`--fetch-mainline`**, or **full branch hydration** is implied by **`--sync`**, **`--risky`**, **`risky_mode`** in config, a **non-mainline `branch_mode`**, or **any `--branch-mode`** on the CLI. Quitting (**`q`** or **`ctrl+c`**) cancels the in-progress scan (in-flight `git` subprocesses are aborted via the scan context); **`ctrl+c`** outside raw TTY mode is treated like cancel. After you confirm repos, the **rain phase** shows live per-repo status (queued, running, retrying, timed out, frozen, failed, done). Use **`s`** to skip the selected running repo and **`a`** to abort the whole rain (partial summary, non-zero exit).
 
 Status strip and optional log panel are driven from structured session events. Confirming selection still exits TUI and runs fetch/sync work in normal CLI output.
 

@@ -46,7 +46,7 @@ func TestRunRainOnRepos_ParallelStallDoesNotBlockHealthy(t *testing.T) {
 	defer func() { os.Stdout = oldStdout }()
 
 	start := time.Now()
-	err := runRainOnRepos(&registry.Registry{}, repos, rainOpts, false, 2)
+	err := runRainOnRepos(&registry.Registry{}, repos, rainOpts, false, 2) // CLI path (parallel stdout)
 	elapsed := time.Since(start)
 
 	_ = w.Close()

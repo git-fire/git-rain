@@ -37,4 +37,6 @@ These notes apply to humans and to automated agents (including Cloud Agents).
 - **Manual end-to-end check:** create a bare remote + a clone under a scan dir, advance the remote, then `./git-rain --sync --path <dir>` fast-forwards the local branch. Requires `git user.name`/`user.email` to be set (already configured here).
 - **Network fetch timeouts:** `global.fetch_timeout_sec` (default `120`, `0` disables), `--fetch-timeout`, and `GIT_RAIN_GLOBAL_FETCH_TIMEOUT_SEC` bound per-repo `git fetch` via `RunNetworkGit`. Stalled remotes should surface `timed out after Ns` and not block the run summary.
 - **Interrupts:** live runs use `signal.NotifyContext` (SIGINT/SIGTERM) so Ctrl-C cancels in-flight network git and prints a partial summary with exit code `1`.
+- **`--rain` post-picker:** repos run through the same `fetch_workers` pool as the default CLI; the rain-phase TUI shows per-repo status (`s` skip running repo, `a` abort all).
+- **Fetch retries:** `fetch_retry_*` settings retry only transient network failures (never auth / 404 / prompt-disabled).
 

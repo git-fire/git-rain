@@ -240,7 +240,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 	rainOpts.RunCtx = runCtx
 
 	if rainRain {
-		return runRainTUIStream(cfg, reg, regPath, opts, rainOpts, fullSync)
+		return runRainTUIStream(cfg, reg, regPath, opts, rainOpts, fullSync, stopRun)
 	}
 
 	return runRainDefaultStream(cfg, reg, regPath, opts, rainOpts, fullSync)
@@ -514,7 +514,7 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 // runRainTUIStream launches the interactive TUI repo picker (streaming mode).
 // The filesystem scan runs concurrently; repos stream into the picker as they
 // are discovered. After confirmation, the same default or --sync behavior runs.
-func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
+func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool, abortRun func()) error {
 	scanParent := rainOpts.RunCtx
 	if scanParent == nil {
 		scanParent = context.Background()
@@ -614,7 +614,7 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 	}
 	fmt.Println()
 
-	return runRainOnRepos(reg, selected, rainOpts, fullSync, cfg.Global.FetchWorkers)
+	return runRainOnReposTUI(cfg, reg, selected, rainOpts, fullSync, abortRun)
 }
 
 // fetchWorkerCount returns the per-run parallel fetch worker count, clamped
@@ -883,7 +883,7 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	}
 	fmt.Println()
 
-	totals := runRainReposParallel(reg, repos, opts, fullSync, fetchWorkers)
+	totals := runRainReposParallel(reg, repos, opts, fullSync, fetchWorkers, nil, nil, false)
 
 	return printRainSummary(totals, opts.RunCtx)
 }

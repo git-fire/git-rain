@@ -6,16 +6,34 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/git-rain/git-rain/internal/git"
+	"github.com/git-rain/git-rain/internal/rainexec"
 	"github.com/git-rain/git-rain/internal/registry"
 )
 
+func emitRainEvent(ch chan<- rainexec.Event, e rainexec.Event) {
+	if ch == nil {
+		return
+	}
+	ch <- e
+}
+
 // runRainReposParallel runs fetch/rain for repos using the same bounded worker
-// pool as the default streaming CLI path.
-func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int) rainTotals {
+// pool as the default streaming CLI path. When progress is non-nil, repo status
+// events are emitted; when quiet is true, per-repo CLI blocks are suppressed.
+func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int, progress chan rainexec.Event, coord *rainCoordinator, quiet bool) rainTotals {
 	if len(repos) == 0 {
 		return rainTotals{}
+	}
+
+	for _, repo := range repos {
+		emitRainEvent(progress, rainexec.Event{
+			RepoPath: repo.Path,
+			RepoName: repo.Name,
+			State:    rainexec.StateQueued,
+		})
 	}
 
 	workers := fetchWorkerCount(fetchWorkers)
@@ -45,12 +63,78 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 				if runCtx != nil && runCtx.Err() != nil {
 					break
 				}
+				repoCtx := runCtx
+				if coord != nil {
+					repoCtx = coord.ContextFor(repo.Path)
+				}
+				if repoCtx != nil && repoCtx.Err() != nil {
+					emitRainEvent(progress, rainexec.Event{
+						RepoPath: repo.Path,
+						RepoName: repo.Name,
+						State:    rainexec.StateSkipped,
+						Detail:   "skipped",
+					})
+					continue
+				}
+
+				started := time.Now()
+				maxAttempts := rainOpts.FetchRetryMaxAttempts
+				if maxAttempts <= 0 {
+					maxAttempts = git.DefaultFetchRetryMaxAttempts
+				}
+				emitRainEvent(progress, rainexec.Event{
+					RepoPath:    repo.Path,
+					RepoName:    repo.Name,
+					State:       rainexec.StateRunning,
+					Attempt:     1,
+					MaxAttempts: maxAttempts,
+					StartedAt:   started,
+				})
+
+				repoOpts := rainOpts
+				repoOpts.RunCtx = repoCtx
+				repoOpts.OnFetchAttempt = func(attempt, max int) {
+					emitRainEvent(progress, rainexec.Event{
+						RepoPath:    repo.Path,
+						RepoName:    repo.Name,
+						State:       rainexec.StateRetrying,
+						Attempt:     attempt,
+						MaxAttempts: max,
+						StartedAt:   started,
+					})
+				}
+
 				current := int(atomic.AddInt64(&seq, 1))
 				var buf strings.Builder
-				delta := runRainOnRepo(reg, repo, rainOpts, fullSync, current, int(total), &buf)
-				printMu.Lock()
-				_, _ = io.WriteString(os.Stdout, buf.String())
-				printMu.Unlock()
+				delta := runRainOnRepo(reg, repo, repoOpts, fullSync, current, int(total), &buf)
+
+				state := rainexec.StateDone
+				detail := ""
+				switch {
+				case repoCtx != nil && repoCtx.Err() != nil:
+					state = rainexec.StateSkipped
+					detail = "skipped"
+				case delta.failed > 0:
+					state = rainexec.StateFailed
+				case delta.frozen > 0:
+					state = rainexec.StateFrozen
+					if strings.Contains(buf.String(), "timed out") {
+						state = rainexec.StateTimedOut
+					}
+				}
+				emitRainEvent(progress, rainexec.Event{
+					RepoPath:  repo.Path,
+					RepoName:  repo.Name,
+					State:     state,
+					StartedAt: started,
+					Detail:    detail,
+				})
+
+				if !quiet {
+					printMu.Lock()
+					_, _ = io.WriteString(os.Stdout, buf.String())
+					printMu.Unlock()
+				}
 				atomic.AddInt64(&updated, int64(delta.updated))
 				atomic.AddInt64(&skipped, int64(delta.skipped))
 				atomic.AddInt64(&frozen, int64(delta.frozen))

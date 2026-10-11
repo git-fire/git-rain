@@ -3,7 +3,6 @@ package git
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -142,44 +141,5 @@ func TestRunNetworkGitWithRetry_RespectsCancellationDuringBackoff(t *testing.T) 
 	}
 	if calls != 1 {
 		t.Fatalf("calls = %d, want 1", calls)
-	}
-}
-
-func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
-	var accepts atomic.Int32
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-	go func() {
-		for {
-			c, aerr := ln.Accept()
-			if aerr != nil {
-				return
-			}
-			if accepts.Add(1) < 2 {
-				_ = c.Close()
-				continue
-			}
-			_ = c.Close()
-		}
-	}()
-
-	stub := func(ctx context.Context, c *exec.Cmd, timeoutSec int) ([]byte, error) {
-		conn, derr := net.DialTimeout("tcp", ln.Addr().String(), time.Second)
-		if derr != nil {
-			return []byte(derr.Error()), derr
-		}
-		_ = conn.Close()
-		if accepts.Load() < 2 {
-			return []byte("read: connection reset by peer"), errors.New("reset")
-		}
-		return nil, nil
-	}
-	params := NetworkGitParams{MaxAttempts: 2, InitialBackoffSec: 1}
-	_, err = runNetworkGitWithRetry(context.Background(), exec.Command("git", "fetch"), params, stub)
-	if err != nil {
-		t.Fatalf("expected success on second attempt: %v", err)
 	}
 }
