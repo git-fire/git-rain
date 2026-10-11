@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -48,6 +49,14 @@ func matchesPatterns(name string, patterns []string) bool {
 
 // fetchFailureReason classifies a failed git-fetch stderr output into a
 // human-friendly frozen reason. Returns a calm, non-alarming message.
+func fetchFailureReasonForErr(output []byte, err error) string {
+	var timedOut *FetchTimedOutError
+	if errors.As(err, &timedOut) {
+		return timedOut.Error()
+	}
+	return fetchFailureReason(output)
+}
+
 func fetchFailureReason(output []byte) string {
 	s := strings.ToLower(string(output))
 	authPhrases := []string{
@@ -118,6 +127,12 @@ type RainOptions struct {
 	// patterns. Each entry is either an exact branch name or a prefix ending in "/"
 	// (e.g. "feat/", "JIRA-"). Only used when BranchMode == BranchSyncMainline.
 	MainlinePatterns []string
+
+	// FetchTimeoutSec is the per-fetch deadline in seconds (0 = no timeout).
+	FetchTimeoutSec int
+
+	// RunCtx cancels in-flight network git when the run is interrupted.
+	RunCtx context.Context
 }
 
 const (
@@ -201,11 +216,15 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		}
 		cmd := exec.Command("git", fetchArgs...)
 		cmd.Dir = repoPath
-		PrepareNetworkGit(cmd)
-		if output, fetchErr := cmd.CombinedOutput(); fetchErr != nil {
+		runCtx := opts.RunCtx
+		if runCtx == nil {
+			runCtx = context.Background()
+		}
+		output, fetchErr := RunNetworkGit(runCtx, cmd, opts.FetchTimeoutSec)
+		if fetchErr != nil {
 			// Freeze gracefully — could not reach remote (auth, network, etc.).
 			// This is not a hard failure; the repo is untouched. Try again later.
-			reason := fetchFailureReason(output)
+			reason := fetchFailureReasonForErr(output, fetchErr)
 			candidates := branches
 			if len(candidates) == 0 {
 				candidates = []localBranchTracking{{Branch: "(all branches)"}}

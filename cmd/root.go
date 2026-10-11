@@ -44,6 +44,7 @@ var (
 	rainSyncTags        bool
 	rainPrune           bool
 	rainNoPrune         bool
+	rainFetchTimeout    int
 	forceUnlockRegistry bool
 )
 
@@ -104,6 +105,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")
 	rootCmd.Flags().BoolVar(&rainPrune, "prune", false, "Pass --prune on git fetch for this run (overrides config and per-repo settings)")
 	rootCmd.Flags().BoolVar(&rainNoPrune, "no-prune", false, "Never pass --prune on git fetch for this run (overrides --prune and global/repo enablement)")
+	rootCmd.Flags().IntVar(&rainFetchTimeout, "fetch-timeout", -1, "Per-fetch network timeout in seconds (0 = disabled; default from config global.fetch_timeout_sec)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 }
 
@@ -145,12 +147,17 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainBranchMode != "" {
 		branchModeStr = rainBranchMode
 	}
+	fetchTimeoutSec := cfg.Global.FetchTimeoutSec
+	if rainFetchTimeout >= 0 {
+		fetchTimeoutSec = rainFetchTimeout
+	}
 	rainOpts := git.RainOptions{
 		RiskyMode:        cfg.Global.RiskyMode || rainRisky,
 		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
 		SyncTags:         cfg.Global.SyncTags || rainSyncTags,
 		FetchPrune:       cfg.Global.FetchPrune,
 		MainlinePatterns: cfg.Global.MainlinePatterns,
+		FetchTimeoutSec:  fetchTimeoutSec,
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
@@ -295,6 +302,9 @@ func fetchFailureMessage(errMsg string) string {
 		strings.Contains(s, "could not read") || strings.Contains(s, "401") || strings.Contains(s, "403") {
 		return "could not authenticate with remote — check your credentials and try again"
 	}
+	if idx := strings.Index(strings.ToLower(errMsg), "timed out after"); idx >= 0 {
+		return strings.TrimSpace(errMsg[idx:])
+	}
 	if strings.Contains(s, "could not resolve") || strings.Contains(s, "connection") ||
 		strings.Contains(s, "timed out") || strings.Contains(s, "network") {
 		return "could not reach remote — check your network and try again"
@@ -350,7 +360,7 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	}
 
 	if !fullSync && !rainFetchMainline {
-		if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
+		if fetchErr := fetchOnly(repoOpts.RunCtx, repo.Path, repoOpts); fetchErr != nil {
 			_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n",
 				safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
 			delta.frozen++
@@ -878,7 +888,10 @@ func applyRepoFetchPrune(repoPath string, base git.RainOptions, absPath string, 
 	return opt, nil
 }
 
-func fetchOnly(repoPath string, opts git.RainOptions) error {
+func fetchOnly(ctx context.Context, repoPath string, opts git.RainOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	fetchArgs := []string{"fetch", "--all"}
 	if opts.FetchPrune {
 		fetchArgs = append(fetchArgs, "--prune")
@@ -888,8 +901,12 @@ func fetchOnly(repoPath string, opts git.RainOptions) error {
 	}
 	cmd := exec.Command("git", fetchArgs...)
 	cmd.Dir = repoPath
-	git.PrepareNetworkGit(cmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := git.RunNetworkGit(ctx, cmd, opts.FetchTimeoutSec)
+	if err != nil {
+		var timedOut *git.FetchTimedOutError
+		if errors.As(err, &timedOut) {
+			return fmt.Errorf("%s: %s", strings.Join(append([]string{"git"}, fetchArgs...), " "), timedOut.Error())
+		}
 		return fmt.Errorf("%s: %w (output: %s)", strings.Join(append([]string{"git"}, fetchArgs...), " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
