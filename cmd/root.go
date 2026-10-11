@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-runewidth"
@@ -151,6 +153,11 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainFetchTimeout >= 0 {
 		fetchTimeoutSec = rainFetchTimeout
 	}
+	// Network git runs in their own process group (Setpgid) so a terminal
+	// SIGINT no longer reaches git-remote-*/ssh. Cancel RunCtx on interrupt
+	// so RunNetworkGit can kill the whole group before we exit.
+	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	rainOpts := git.RainOptions{
 		RiskyMode:        cfg.Global.RiskyMode || rainRisky,
 		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
@@ -158,6 +165,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 		FetchPrune:       cfg.Global.FetchPrune,
 		MainlinePatterns: cfg.Global.MainlinePatterns,
 		FetchTimeoutSec:  fetchTimeoutSec,
+		RunCtx:           runCtx,
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
