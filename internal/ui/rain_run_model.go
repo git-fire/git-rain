@@ -114,13 +114,11 @@ func (m rainRunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ctrl.Skip(row.path)
 				}
 			}
-		case "a", "ctrl+c":
+		case "a", "q", "ctrl+c":
 			m.aborted = true
 			if m.ctrl.Abort != nil {
 				m.ctrl.Abort()
 			}
-			return m, tea.Quit
-		case "q":
 			return m, tea.Quit
 		}
 	}
@@ -149,7 +147,7 @@ func (m rainRunModel) View() string {
 	title := lipgloss.NewStyle().Bold(true).Render("🌧  Rain in progress")
 	b.WriteString(title)
 	b.WriteString("\n")
-	b.WriteString("↑/↓ select · s skip running repo · a abort all · q close when done\n\n")
+	b.WriteString("↑/↓ select · s skip running repo · a/q abort all\n\n")
 
 	for i, row := range m.rows {
 		line := m.formatRow(row, i == m.cursor)
@@ -199,11 +197,13 @@ func (m rainRunModel) formatRow(row rainRepoRow, selected bool) string {
 	if selected {
 		prefix = "▸ "
 	}
-	line := prefix + label + " — " + status
+	// Truncate plain text first; runewidth treats ANSI CSI bytes as width and
+	// can clip a lipgloss reset if styling is applied before truncation.
+	line := runewidth.Truncate(prefix+label+" — "+status, max(40, m.width-2), "…")
 	if overdue {
 		line = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(line)
 	}
-	return runewidth.Truncate(line, max(40, m.width-2), "…")
+	return line
 }
 
 func max(a, b int) int {

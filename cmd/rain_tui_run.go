@@ -37,6 +37,11 @@ func runRainOnReposTUI(cfg *config.Config, reg *registry.Registry, repos []git.R
 		},
 	}
 	_ = ui.RunRainProgressTUI(repos, events, ctrl, opts.FetchTimeoutSec)
+	// Drain so workers never block on emitRainEvent after the TUI stops consuming.
+	go func() {
+		for range events {
+		}
+	}()
 	totals := <-done
 	return printRainSummary(totals, opts.RunCtx)
 }

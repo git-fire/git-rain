@@ -1,10 +1,15 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
+	"github.com/muesli/termenv"
 
 	"github.com/git-rain/git-rain/internal/rainexec"
 )
@@ -58,6 +63,22 @@ func TestRainRunModel_AbortKeySetsFlag(t *testing.T) {
 	}
 }
 
+func TestRainRunModel_QuitKeyAborts(t *testing.T) {
+	aborted := false
+	m := rainRunModel{
+		rows: []rainRepoRow{{path: "/a", name: "alpha", state: rainexec.StateRunning}},
+		ctrl: RainControls{Abort: func() { aborted = true }},
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	fm := next.(rainRunModel)
+	if !fm.aborted || !aborted {
+		t.Fatal("expected q to abort the rain run")
+	}
+	if cmd == nil {
+		t.Fatal("expected quit cmd")
+	}
+}
+
 func TestRainRunModel_OverdueHighlight(t *testing.T) {
 	m := rainRunModel{
 		timeoutSec: 2,
@@ -75,5 +96,36 @@ func TestRainRunModel_OverdueHighlight(t *testing.T) {
 	}
 	if m.formatRow(onTime, false) == m.formatRow(overdue, false) {
 		t.Fatal("expected overdue row to differ from on-time row")
+	}
+}
+
+func TestRainRunModel_OverdueTruncateKeepsReset(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	m := rainRunModel{
+		timeoutSec: 1,
+		width:      40,
+	}
+	row := rainRepoRow{
+		name:      strings.Repeat("long-repo-name-", 8),
+		state:     rainexec.StateRunning,
+		startedAt: time.Now().Add(-10 * time.Second),
+	}
+	got := m.formatRow(row, false)
+	wantWidth := max(40, m.width-2)
+	if lipgloss.Width(got) != wantWidth {
+		t.Fatalf("lipgloss.Width = %d, want %d (ANSI reset likely clipped)", lipgloss.Width(got), wantWidth)
+	}
+	// Style-then-truncate would clip the reset; truncate-then-style keeps it.
+	if !strings.HasSuffix(got, "\x1b[0m") {
+		t.Fatalf("expected intact lipgloss reset suffix, got %q", got)
+	}
+	sec := int(time.Since(row.startedAt).Seconds())
+	plain := runewidth.Truncate("  "+row.name+fmt.Sprintf(" — running %ds", sec), wantWidth, "…")
+	want := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(plain)
+	if got != want {
+		t.Fatalf("formatRow = %q, want %q", got, want)
 	}
 }
