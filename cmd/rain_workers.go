@@ -110,10 +110,17 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 
 				state := rainexec.StateDone
 				detail := ""
+				// User skip cancels repoCtx. Only label skipped when nothing useful
+				// finished; otherwise keep the real outcome (avoid false "skipped"
+				// after a completed fetch/sync). Drop cancel-as-frozen from totals.
+				userSkip := repoCtx != nil && repoCtx.Err() != nil
+				interruptedBeforeDone := userSkip &&
+					delta.updated == 0 && delta.failed == 0 && delta.skipped == 0
 				switch {
-				case repoCtx != nil && repoCtx.Err() != nil:
+				case interruptedBeforeDone:
 					state = rainexec.StateSkipped
 					detail = "skipped"
+					delta = rainTotals{}
 				case delta.failed > 0:
 					state = rainexec.StateFailed
 				case delta.frozen > 0:
