@@ -507,6 +507,30 @@ func TestFetchFailureMessage(t *testing.T) {
 	}
 }
 
+func TestSummarizeBranchRun(t *testing.T) {
+	tests := []struct {
+		name                             string
+		failed, frozen, updated, skipped int
+		want                             string
+	}{
+		{"all zero is up-to-date", 0, 0, 0, 0, git.RainOutcomeUpToDate},
+		{"updated", 0, 0, 1, 0, git.RainOutcomeUpdated},
+		{"skipped only", 0, 0, 0, 2, "skipped"},
+		{"updated beats skipped", 0, 0, 1, 3, git.RainOutcomeUpdated},
+		{"frozen beats updated", 0, 1, 2, 0, git.RainOutcomeFrozen},
+		{"failed beats all", 1, 1, 1, 1, git.RainOutcomeFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := summarizeBranchRun(tt.failed, tt.frozen, tt.updated, tt.skipped)
+			if got != tt.want {
+				t.Fatalf("summarizeBranchRun(%d,%d,%d,%d) = %q, want %q",
+					tt.failed, tt.frozen, tt.updated, tt.skipped, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWeatherSymbol(t *testing.T) {
 	tests := []struct {
 		outcome string

@@ -19,10 +19,10 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
+	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/config"
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
-	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/sessionlog"
 	"github.com/git-rain/git-rain/internal/ui"
 )
@@ -429,7 +429,7 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 		delta.skipped += res.Skipped
 		delta.frozen += res.Frozen
 		delta.failed += res.Failed
-		report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated)
+		report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated, res.Skipped)
 		return delta, report
 	}
 
@@ -464,11 +464,11 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	delta.skipped += res.Skipped
 	delta.frozen += res.Frozen
 	delta.failed += res.Failed
-	report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated)
+	report.SummaryOutcome = summarizeBranchRun(res.Failed, res.Frozen, res.Updated, res.Skipped)
 	return delta, report
 }
 
-func summarizeBranchRun(failed, frozen, updated int) string {
+func summarizeBranchRun(failed, frozen, updated, skipped int) string {
 	if failed > 0 {
 		return git.RainOutcomeFailed
 	}
@@ -477,6 +477,9 @@ func summarizeBranchRun(failed, frozen, updated int) string {
 	}
 	if updated > 0 {
 		return git.RainOutcomeUpdated
+	}
+	if skipped > 0 {
+		return "skipped"
 	}
 	return git.RainOutcomeUpToDate
 }

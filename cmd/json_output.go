@@ -85,6 +85,19 @@ func jsonVersionString() string {
 	return v
 }
 
+// runLevelFetchPrune reports the run-scoped prune intent for JSON: CLI
+// --prune / --no-prune override the global config value used as rainOpts.FetchPrune.
+func runLevelFetchPrune(globalFetchPrune bool) bool {
+	switch {
+	case rainNoPrune:
+		return false
+	case rainPrune:
+		return true
+	default:
+		return globalFetchPrune
+	}
+}
+
 func buildJSONRunMeta(rainOpts git.RainOptions, fullSync bool) jsonRunMeta {
 	return jsonRunMeta{
 		DryRun:        rainDryRun,
@@ -92,7 +105,7 @@ func buildJSONRunMeta(rainOpts git.RainOptions, fullSync bool) jsonRunMeta {
 		FetchMainline: rainFetchMainline && !fullSync,
 		RiskyMode:     rainOpts.RiskyMode,
 		BranchMode:    string(rainOpts.BranchMode),
-		FetchPrune:    rainOpts.FetchPrune,
+		FetchPrune:    runLevelFetchPrune(rainOpts.FetchPrune),
 	}
 }
 
@@ -122,6 +135,9 @@ func branchesToJSON(branches []git.RainBranchResult, showBackup bool) []jsonBran
 }
 
 func writeJSONRun(w io.Writer, meta jsonRunMeta, totals rainTotals, repos []jsonRepoResult) error {
+	if repos == nil {
+		repos = []jsonRepoResult{}
+	}
 	sort.Slice(repos, func(i, j int) bool { return repos[i].Index < repos[j].Index })
 	doc := jsonRunDocument{
 		SchemaVersion: jsonSchemaVersion,
