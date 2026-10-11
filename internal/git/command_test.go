@@ -22,6 +22,8 @@ func isolatedPrepareNetworkEnv(t *testing.T) []string {
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"USER=" + os.Getenv("USER"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
 	}
 }
 

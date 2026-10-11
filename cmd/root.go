@@ -372,6 +372,11 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 
 	if !fullSync && !rainFetchMainline {
 		if fetchErr := fetchOnly(repoOpts.RunCtx, repo.Path, repoOpts); fetchErr != nil {
+			if errors.Is(fetchErr, context.Canceled) {
+				_, _ = fmt.Fprintln(out, "    ~  skipped\n")
+				_, _ = fmt.Fprintln(out)
+				return delta
+			}
 			_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n",
 				safety.SanitizeText(fetchFailureMessage(fetchErr.Error())))
 			delta.frozen++
@@ -789,7 +794,8 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 			defer workersWG.Done()
 			for repo := range repoChan {
 				if ctx.Err() != nil {
-					break
+					// Drain repoChan so the upsert goroutine can finish and close it.
+					continue
 				}
 				current := int(atomic.AddInt64(&seq, 1))
 				total := int(atomic.LoadInt64(&totalFound))
