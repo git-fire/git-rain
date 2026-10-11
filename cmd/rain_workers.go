@@ -107,20 +107,10 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 				current := int(atomic.AddInt64(&seq, 1))
 				var buf strings.Builder
 				delta := runRainOnRepo(reg, repo, repoOpts, fullSync, current, int(total), &buf)
-
-				state := rainexec.StateDone
+				state, delta := classifyRepoRainOutcome(repoCtx, delta, buf.String())
 				detail := ""
-				switch {
-				case repoCtx != nil && repoCtx.Err() != nil:
-					state = rainexec.StateSkipped
+				if state == rainexec.StateSkipped {
 					detail = "skipped"
-				case delta.failed > 0:
-					state = rainexec.StateFailed
-				case delta.frozen > 0:
-					state = rainexec.StateFrozen
-					if strings.Contains(buf.String(), "timed out") {
-						state = rainexec.StateTimedOut
-					}
 				}
 				emitRainEvent(progress, rainexec.Event{
 					RepoPath:  repo.Path,

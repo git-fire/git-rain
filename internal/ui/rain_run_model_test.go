@@ -62,15 +62,18 @@ func TestRainRunModel_OverdueHighlight(t *testing.T) {
 	m := rainRunModel{
 		timeoutSec: 2,
 		width:      80,
-		rows: []rainRepoRow{{
-			path:      "/a",
-			name:      "alpha",
-			state:     rainexec.StateRunning,
-			startedAt: time.Now().Add(-5 * time.Second),
-		}},
 	}
-	view := m.formatRow(m.rows[0], true)
-	if view == "" {
-		t.Fatal("empty view line")
+	onTime := rainRepoRow{
+		name:      "alpha",
+		state:     rainexec.StateRunning,
+		startedAt: time.Now().Add(-1 * time.Second),
+	}
+	overdue := rainRepoRow{
+		name:      "alpha",
+		state:     rainexec.StateRunning,
+		startedAt: time.Now().Add(-5 * time.Second),
+	}
+	if m.formatRow(onTime, false) == m.formatRow(overdue, false) {
+		t.Fatal("expected overdue row to differ from on-time row")
 	}
 }

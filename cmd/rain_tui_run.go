@@ -36,7 +36,7 @@ func runRainOnReposTUI(cfg *config.Config, reg *registry.Registry, repos []git.R
 			}
 		},
 	}
-	_ = ui.RunRainProgressTUI(repos, events, ctrl, cfg.Global.FetchTimeoutSec)
+	_ = ui.RunRainProgressTUI(repos, events, ctrl, opts.FetchTimeoutSec)
 	totals := <-done
 	return printRainSummary(totals, opts.RunCtx)
 }
