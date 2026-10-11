@@ -21,10 +21,10 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
+	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/config"
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
-	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/sessionlog"
 	"github.com/git-rain/git-rain/internal/ui"
 )
@@ -392,8 +392,9 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	if !fullSync && !rainFetchMainline {
 		if fetchErr := fetchOnly(repoOpts.RunCtx, repo.Path, repoOpts); fetchErr != nil {
 			if errors.Is(fetchErr, context.Canceled) {
-				_, _ = fmt.Fprintln(out, "    ~  skipped\n")
+				_, _ = fmt.Fprintln(out, "    ~  skipped")
 				_, _ = fmt.Fprintln(out)
+				delta.skipped++
 				return delta
 			}
 			_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n",
@@ -430,6 +431,12 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 
 	res, rainErr := git.RainRepository(repo.Path, repoOpts)
 	if rainErr != nil {
+		if errors.Is(rainErr, context.Canceled) {
+			_, _ = fmt.Fprintln(out, "    ~  skipped")
+			_, _ = fmt.Fprintln(out)
+			delta.skipped++
+			return delta
+		}
 		_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", safety.SanitizeText(rainErr.Error()))
 		delta.failed++
 		return delta
