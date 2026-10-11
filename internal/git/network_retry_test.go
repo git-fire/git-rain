@@ -107,7 +107,7 @@ func TestRunNetworkGit_RetriesFlakyHTTPServer(t *testing.T) {
 		if err != nil {
 			return []byte(err.Error()), err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode == http.StatusServiceUnavailable {
 			return []byte("error: RPC failed; HTTP 503"), errors.New("exit 128")
 		}
