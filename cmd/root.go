@@ -21,10 +21,10 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
+	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/config"
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
-	"github.com/git-fire/git-harness/safety"
 	"github.com/git-rain/git-rain/internal/sessionlog"
 	"github.com/git-rain/git-rain/internal/ui"
 )
@@ -807,8 +807,10 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		go func() {
 			defer workersWG.Done()
 			for repo := range repoChan {
+				// After cancel, keep draining so upsert cannot block forever
+				// on repoChan send (deadlocking on <-upsertDone).
 				if ctx.Err() != nil {
-					break
+					continue
 				}
 				current := int(atomic.AddInt64(&seq, 1))
 				total := int(atomic.LoadInt64(&totalFound))

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -10,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	testutil "github.com/git-fire/git-testkit"
 	"github.com/git-rain/git-rain/internal/config"
 	"github.com/git-rain/git-rain/internal/git"
 	"github.com/git-rain/git-rain/internal/registry"
-	testutil "github.com/git-fire/git-testkit"
 )
 
 func TestRunRainDefaultStream_StallRemoteDoesNotBlockSummary(t *testing.T) {
@@ -76,6 +77,72 @@ func TestRunRainDefaultStream_StallRemoteDoesNotBlockSummary(t *testing.T) {
 	}
 	if elapsed > time.Duration(timeoutSec+8)*time.Second {
 		t.Fatalf("run took %v; should finish soon after stall timeout %ds", elapsed, timeoutSec)
+	}
+}
+
+func TestRunRainDefaultStream_CancelDoesNotDeadlock(t *testing.T) {
+	baseURL, cleanup := startStallTCPListener(t)
+	defer cleanup()
+
+	// More repos than repoChan buffer + fetch workers so upsert blocks on send
+	// once workers stop consuming after cancel.
+	const nRepos = 12
+	known := make(map[string]bool, nRepos)
+	for i := 0; i < nRepos; i++ {
+		path := testutil.CreateTestRepo(t, testutil.RepoOptions{
+			Name: fmt.Sprintf("cancel-stall-%d", i),
+			Remotes: map[string]string{
+				"origin": fmt.Sprintf("%s/cancel-stall-%d.git", baseURL, i),
+			},
+		})
+		known[path] = true
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Global.FetchWorkers = 1
+	cfg.Global.FetchTimeoutSec = 60
+	cfg.Global.DisableScan = true
+
+	opts := git.DefaultScanOptions()
+	opts.DisableScan = true
+	opts.KnownPaths = known
+	opts.Workers = 2
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rainOpts := git.RainOptions{
+		FetchTimeoutSec: 60,
+		RunCtx:          ctx,
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runRainDefaultStream(&cfg, &registry.Registry{}, "", opts, rainOpts, false)
+	}()
+
+	// Let the pipeline fill (workers busy on stalled fetches, upsert blocked).
+	time.Sleep(500 * time.Millisecond)
+	cancel()
+
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(8 * time.Second):
+		os.Stdout = oldStdout
+		_ = w.Close()
+		_, _ = io.Copy(io.Discard, r)
+		t.Fatal("runRainDefaultStream deadlocked after cancel")
+	}
+
+	os.Stdout = oldStdout
+	_ = w.Close()
+	_, _ = io.Copy(io.Discard, r)
+
+	if err == nil || err.Error() != "interrupted" {
+		t.Fatalf("expected interrupted error, got %v", err)
 	}
 }
 
