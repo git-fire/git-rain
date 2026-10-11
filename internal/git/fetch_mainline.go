@@ -151,7 +151,7 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 		if runCtx == nil {
 			runCtx = context.Background()
 		}
-		output, err := RunNetworkGit(runCtx, cmd, opts.FetchTimeoutSec)
+		output, err := RunNetworkGit(runCtx, cmd, NetworkGitParamsFromRain(opts))
 		if err != nil {
 			failedReason[remote] = fetchFailureReasonForErr(output, err)
 		}

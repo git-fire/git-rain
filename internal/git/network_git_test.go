@@ -57,7 +57,7 @@ func TestRunNetworkGit_TimesOutStallRemote(t *testing.T) {
 	start := time.Now()
 	cmd := exec.Command("git", "fetch", "--all")
 	cmd.Dir = repo
-	_, err := RunNetworkGit(context.Background(), cmd, timeoutSec)
+	_, err := RunNetworkGit(context.Background(), cmd, NetworkGitParams{TimeoutSec: timeoutSec, MaxAttempts: 1})
 	elapsed := time.Since(start)
 
 	var timedOut *FetchTimedOutError
@@ -95,7 +95,7 @@ func TestRunNetworkGit_CancelStopsInFlightFetch(t *testing.T) {
 	start := time.Now()
 	cmd := exec.Command("git", "fetch", "--all")
 	cmd.Dir = repo
-	_, err := RunNetworkGit(ctx, cmd, 120)
+	_, err := RunNetworkGit(ctx, cmd, NetworkGitParams{TimeoutSec: 120, MaxAttempts: 1})
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, context.Canceled) {
@@ -117,7 +117,7 @@ func TestRunNetworkGit_HealthyRemoteCompletes(t *testing.T) {
 
 	cmd := exec.Command("git", "fetch", "--all")
 	cmd.Dir = local.Path()
-	_, err := RunNetworkGit(context.Background(), cmd, 30)
+	_, err := RunNetworkGit(context.Background(), cmd, NetworkGitParams{TimeoutSec: 30, MaxAttempts: 1})
 	if err != nil {
 		t.Fatalf("RunNetworkGit() on healthy remote: %v", err)
 	}

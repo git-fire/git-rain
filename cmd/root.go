@@ -47,6 +47,9 @@ var (
 	rainPrune           bool
 	rainNoPrune         bool
 	rainFetchTimeout    int
+	rainFetchRetryMax   int
+	rainFetchRetryInit  int
+	rainFetchRetryMaxBO int
 	forceUnlockRegistry bool
 )
 
@@ -108,6 +111,9 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainPrune, "prune", false, "Pass --prune on git fetch for this run (overrides config and per-repo settings)")
 	rootCmd.Flags().BoolVar(&rainNoPrune, "no-prune", false, "Never pass --prune on git fetch for this run (overrides --prune and global/repo enablement)")
 	rootCmd.Flags().IntVar(&rainFetchTimeout, "fetch-timeout", -1, "Per-fetch network timeout in seconds (0 = disabled; default from config global.fetch_timeout_sec)")
+	rootCmd.Flags().IntVar(&rainFetchRetryMax, "fetch-retry-max-attempts", -1, "Total network git attempts per fetch (default from config global.fetch_retry_max_attempts)")
+	rootCmd.Flags().IntVar(&rainFetchRetryInit, "fetch-retry-initial-backoff", -1, "First retry backoff in seconds (default from config)")
+	rootCmd.Flags().IntVar(&rainFetchRetryMaxBO, "fetch-retry-max-backoff", -1, "Max retry backoff in seconds (default from config)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 }
 
@@ -153,13 +159,28 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainFetchTimeout >= 0 {
 		fetchTimeoutSec = rainFetchTimeout
 	}
+	fetchRetryMax := cfg.Global.FetchRetryMaxAttempts
+	if rainFetchRetryMax >= 0 {
+		fetchRetryMax = rainFetchRetryMax
+	}
+	fetchRetryInit := cfg.Global.FetchRetryInitialBackoffSec
+	if rainFetchRetryInit >= 0 {
+		fetchRetryInit = rainFetchRetryInit
+	}
+	fetchRetryMaxBO := cfg.Global.FetchRetryMaxBackoffSec
+	if rainFetchRetryMaxBO >= 0 {
+		fetchRetryMaxBO = rainFetchRetryMaxBO
+	}
 	rainOpts := git.RainOptions{
 		RiskyMode:        cfg.Global.RiskyMode || rainRisky,
 		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
 		SyncTags:         cfg.Global.SyncTags || rainSyncTags,
 		FetchPrune:       cfg.Global.FetchPrune,
 		MainlinePatterns: cfg.Global.MainlinePatterns,
-		FetchTimeoutSec:  fetchTimeoutSec,
+		FetchTimeoutSec:             fetchTimeoutSec,
+		FetchRetryMaxAttempts:       fetchRetryMax,
+		FetchRetryInitialBackoffSec: fetchRetryInit,
+		FetchRetryMaxBackoffSec:     fetchRetryMaxBO,
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
@@ -903,7 +924,7 @@ func fetchOnly(ctx context.Context, repoPath string, opts git.RainOptions) error
 	}
 	cmd := exec.Command("git", fetchArgs...)
 	cmd.Dir = repoPath
-	out, err := git.RunNetworkGit(ctx, cmd, opts.FetchTimeoutSec)
+	out, err := git.RunNetworkGit(ctx, cmd, git.NetworkGitParamsFromRain(opts))
 	if err != nil {
 		var timedOut *git.FetchTimedOutError
 		if errors.As(err, &timedOut) {
