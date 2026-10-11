@@ -675,7 +675,13 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	}
 	fmt.Println()
 
-	ctx, cancelScan := context.WithCancel(context.Background())
+	// Derive scan/worker cancellation from RunCtx so SIGINT/SIGTERM stops the
+	// whole run (not only the in-flight network git process group).
+	parent := rainOpts.RunCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancelScan := context.WithCancel(parent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -775,6 +781,10 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		go func() {
 			defer workersWG.Done()
 			for repo := range repoChan {
+				// Drain remaining work without fetching after interrupt/cancel.
+				if ctx.Err() != nil {
+					continue
+				}
 				current := int(atomic.AddInt64(&seq, 1))
 				total := int(atomic.LoadInt64(&totalFound))
 				// While the scan is still running, total may equal current
@@ -811,6 +821,11 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 
 	printMu.Lock()
 	defer printMu.Unlock()
+
+	if ctx.Err() != nil {
+		fmt.Println("Aborted.")
+		return nil
+	}
 
 	if atomic.LoadInt64(&seq) == 0 {
 		fmt.Println("No git repositories found.")

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -76,6 +77,95 @@ func TestRunRainDefaultStream_StallRemoteDoesNotBlockSummary(t *testing.T) {
 	}
 	if elapsed > time.Duration(timeoutSec+8)*time.Second {
 		t.Fatalf("run took %v; should finish soon after stall timeout %ds", elapsed, timeoutSec)
+	}
+}
+
+func TestRunRainDefaultStream_CancelStopsRemainingRepos(t *testing.T) {
+	baseURL, cleanup := startStallTCPListener(t)
+	defer cleanup()
+
+	stallA := testutil.CreateTestRepo(t, testutil.RepoOptions{
+		Name: "stall-a",
+		Remotes: map[string]string{
+			"origin": baseURL + "/stall-a.git",
+		},
+	})
+	stallB := testutil.CreateTestRepo(t, testutil.RepoOptions{
+		Name: "stall-b",
+		Remotes: map[string]string{
+			"origin": baseURL + "/stall-b.git",
+		},
+	})
+	stallC := testutil.CreateTestRepo(t, testutil.RepoOptions{
+		Name: "stall-c",
+		Remotes: map[string]string{
+			"origin": baseURL + "/stall-c.git",
+		},
+	})
+
+	cfg := config.DefaultConfig()
+	cfg.Global.FetchWorkers = 1
+	cfg.Global.FetchTimeoutSec = 30
+	cfg.Global.DisableScan = true
+
+	opts := git.DefaultScanOptions()
+	opts.DisableScan = true
+	opts.KnownPaths = map[string]bool{
+		stallA: true,
+		stallB: true,
+		stallC: true,
+	}
+	opts.Workers = 1
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	rainOpts := git.RainOptions{
+		FetchTimeoutSec: 30,
+		RunCtx:          runCtx,
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- runRainDefaultStream(&cfg, &registry.Registry{}, "", opts, rainOpts, false)
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runRainDefaultStream: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runRainDefaultStream did not return after cancel")
+	}
+	elapsed := time.Since(start)
+
+	_ = w.Close()
+	var out bytes.Buffer
+	_, _ = io.Copy(&out, r)
+	body := out.String()
+
+	if !strings.Contains(body, "Aborted.") {
+		t.Fatalf("expected Aborted. after cancel, got:\n%s", body)
+	}
+	if strings.Contains(body, "rain delivered") {
+		t.Fatalf("did not expect completed summary after cancel, got:\n%s", body)
+	}
+	// With one worker and three stalled remotes, cancel must not fetch all three
+	// to completion (each would otherwise hang until the 30s timeout).
+	if elapsed > 5*time.Second {
+		t.Fatalf("run took %v after cancel; remaining repos should be skipped", elapsed)
+	}
+	frozenLines := strings.Count(body, "❄")
+	if frozenLines >= 3 {
+		t.Fatalf("expected remaining repos skipped after cancel, got %d frozen lines:\n%s", frozenLines, body)
 	}
 }
 
