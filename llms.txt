@@ -1,0 +1,21 @@
+# git-rain
+
+> Multi-repo CLI that pulls remote state down — the reverse of [git-fire](https://github.com/git-fire/git-fire). Default: `git fetch --all` per discovered repo; `--sync` hydrates local branches with safety-first defaults.
+
+Pair with **git-fire** when an agent needs to push many repos after pulling them back in sync. Install once, prefer `--path` sandboxes and `--dry-run` / `--json` for scripted runs.
+
+## Agent onboarding
+
+- [AGENTS.md](https://github.com/git-fire/git-rain/blob/main/AGENTS.md): when to use git-rain, install, commands, exit codes, safety, `--json` schema
+- [README.md](https://github.com/git-fire/git-rain/blob/main/README.md): human-oriented install, flags, configuration, TUI
+- [CLAUDE.md](https://github.com/git-fire/git-rain/blob/main/CLAUDE.md): architecture and maintainer conventions
+- [docs/agent-integration.md](https://github.com/git-fire/git-rain/blob/main/docs/agent-integration.md): sketch for MCP server / agent skill wrappers
+
+## Sibling tool
+
+- [git-fire](https://github.com/git-fire/git-fire): commit and push across many repos (outbound sync)
+- [git-fire AGENTS.md](https://github.com/git-fire/git-fire/blob/main/AGENTS.md): agent guide for the push direction
+
+## Optional
+
+- [Contributing](https://github.com/git-fire/git-rain/blob/main/README.md#contributing): tests and PR expectations
