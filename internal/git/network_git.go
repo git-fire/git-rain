@@ -66,6 +66,16 @@ func RunNetworkGit(parent context.Context, cmd *exec.Cmd, timeoutSec int) ([]byt
 
 	select {
 	case err := <-waitDone:
+		// CommandContext may win the race and surface "signal: killed" on the
+		// completion path when the deadline fires; still treat that as timeout
+		// and ensure the process group (git-remote-*/ssh) is torn down.
+		if runCtx.Err() != nil {
+			killCmdProcessGroup(wrapped.Process)
+			if errors.Is(runCtx.Err(), context.DeadlineExceeded) && timeoutSec > 0 {
+				return combined.Bytes(), &FetchTimedOutError{Seconds: timeoutSec}
+			}
+			return combined.Bytes(), runCtx.Err()
+		}
 		if err != nil {
 			if errors.Is(runCtx.Err(), context.DeadlineExceeded) && timeoutSec > 0 {
 				return combined.Bytes(), &FetchTimedOutError{Seconds: timeoutSec}
@@ -78,7 +88,10 @@ func RunNetworkGit(parent context.Context, cmd *exec.Cmd, timeoutSec int) ([]byt
 		return combined.Bytes(), nil
 	case <-runCtx.Done():
 		killCmdProcessGroup(wrapped.Process)
-		<-waitDone
+		waitErr := <-waitDone
+		if waitErr == nil {
+			return combined.Bytes(), nil
+		}
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) && timeoutSec > 0 {
 			return combined.Bytes(), &FetchTimedOutError{Seconds: timeoutSec}
 		}

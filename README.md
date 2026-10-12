@@ -1,4 +1,6 @@
-# git-rain — Multi-Repo Sync CLI
+# git-rain
+
+**Pull remote state into many git repos at once** — the reverse of [`git-fire`](https://github.com/git-fire/git-fire).
 
 <p align="center">
   <img src="assets/git-rain-lockup.svg#gh-light-mode-only" alt="git-rain: storm cloud, lightning bolt, falling DAG, commit node, wordmark" width="220" height="80">
@@ -11,12 +13,48 @@
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT">
 </p>
 
-> The reverse of [`git-fire`](https://github.com/git-fire/git-fire).
-
 ```
 git-fire  →  commit + push everything out
 git-rain  →  fetch all remotes by default, or hydrate locals with --sync
 ```
+
+## Install
+
+| Method | Command |
+|--------|---------|
+| Homebrew | `brew install git-fire/tap/git-rain` |
+| Go | `go install github.com/git-rain/git-rain@latest` |
+| Releases / script | [GitHub Releases](https://github.com/git-fire/git-rain/releases) · [install script](https://raw.githubusercontent.com/git-fire/git-rain/main/scripts/install.sh) |
+
+```bash
+git-rain --version
+git-rain --help
+```
+
+## Quick start
+
+```bash
+git-rain --dry-run --path ~/projects    # preview
+git-rain --path ~/projects              # git fetch --all per repo
+git-rain --sync --path ~/projects       # update local branches (safe mode)
+```
+
+## Using with AI agents
+
+Coding agents (Cursor, Claude Code, Codex, etc.) should use **non-interactive** runs with **`--json`** so output is predictable and parseable:
+
+```bash
+git-rain --non-interactive --json --dry-run --path /your/scan-root
+git-rain --non-interactive --json --path /your/scan-root
+```
+
+- **[AGENTS.md](AGENTS.md)** — when to use git-rain vs git-fire, exit codes, safety, full `--json` schema
+- **[llms.txt](llms.txt)** — llmstxt.org index of key docs
+- **[docs/agent-integration.md](docs/agent-integration.md)** — future MCP / skill wrapper sketch
+
+Set `GIT_RAIN_NON_INTERACTIVE=1` in CI. Avoid `--rain` (interactive TUI). Pair with [git-fire](https://github.com/git-fire/git-fire) when the task is to push commits outward.
+
+---
 
 `git-rain` discovers git repositories under your scan path (and known registry entries). From lightest to heaviest:
 
