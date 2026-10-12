@@ -16,21 +16,19 @@ const (
 
 // NetworkGitParams configures timeout and retry behavior for RunNetworkGit.
 type NetworkGitParams struct {
-	TimeoutSec          int
-	MaxAttempts         int
-	InitialBackoffSec   int
-	MaxBackoffSec       int
+	TimeoutSec        int
+	MaxAttempts       int
+	InitialBackoffSec int
+	MaxBackoffSec     int
 }
 
 // NetworkGitParamsFromRain maps RainOptions into network git execution params.
+// Zero values are preserved so callers can disable retries (0 attempts) or use
+// immediate backoff (0 seconds). Negative values mean "unset".
 func NetworkGitParamsFromRain(opts RainOptions) NetworkGitParams {
-	maxAttempts := opts.FetchRetryMaxAttempts
-	if maxAttempts <= 0 {
-		maxAttempts = DefaultFetchRetryMaxAttempts
-	}
 	return NetworkGitParams{
 		TimeoutSec:        opts.FetchTimeoutSec,
-		MaxAttempts:       maxAttempts,
+		MaxAttempts:       opts.FetchRetryMaxAttempts,
 		InitialBackoffSec: opts.FetchRetryInitialBackoffSec,
 		MaxBackoffSec:     opts.FetchRetryMaxBackoffSec,
 	}
@@ -49,21 +47,27 @@ func runNetworkGitWithRetry(parent context.Context, cmd *exec.Cmd, params Networ
 		parent = context.Background()
 	}
 	maxAttempts := params.MaxAttempts
-	if maxAttempts <= 0 {
+	if maxAttempts < 0 {
+		maxAttempts = DefaultFetchRetryMaxAttempts
+	} else if maxAttempts == 0 {
 		maxAttempts = 1
 	}
 	initialBackoff := params.InitialBackoffSec
-	if initialBackoff <= 0 {
+	if initialBackoff < 0 {
 		initialBackoff = DefaultFetchRetryInitialBackoffSec
 	}
 	maxBackoff := params.MaxBackoffSec
-	if maxBackoff <= 0 {
+	if maxBackoff < 0 {
 		maxBackoff = DefaultFetchRetryMaxBackoffSec
 	}
 
 	var lastOut []byte
 	var lastErr error
+	maxBackoffDur := time.Duration(maxBackoff) * time.Second
 	backoff := time.Duration(initialBackoff) * time.Second
+	if backoff > maxBackoffDur {
+		backoff = maxBackoffDur
+	}
 
 	for attemptNum := 1; attemptNum <= maxAttempts; attemptNum++ {
 		if parent.Err() != nil {
@@ -80,10 +84,10 @@ func runNetworkGitWithRetry(parent context.Context, cmd *exec.Cmd, params Networ
 		if !sleepWithContext(parent, backoff) {
 			return lastOut, parent.Err()
 		}
-		if backoff < time.Duration(maxBackoff)*time.Second {
+		if backoff < maxBackoffDur {
 			backoff *= 2
-			if backoff > time.Duration(maxBackoff)*time.Second {
-				backoff = time.Duration(maxBackoff) * time.Second
+			if backoff > maxBackoffDur {
+				backoff = maxBackoffDur
 			}
 		}
 	}
@@ -130,6 +134,9 @@ func isTransientNetworkFailure(output []byte, err error) bool {
 		" 403 ",
 		"http 401",
 		"http 403",
+		// git: "The requested URL returned error: 401\n"
+		"error: 401",
+		"error: 403",
 	}
 	for _, p := range nonRetry {
 		if strings.Contains(s, p) {
@@ -151,6 +158,10 @@ func isTransientNetworkFailure(output []byte, err error) bool {
 		" 502 ",
 		" 503 ",
 		" 504 ",
+		// git: "The requested URL returned error: 503\n"
+		"error: 502",
+		"error: 503",
+		"error: 504",
 		"timed out after",
 		"operation timed out",
 		"network is unreachable",

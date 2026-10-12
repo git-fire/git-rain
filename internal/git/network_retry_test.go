@@ -14,15 +14,39 @@ import (
 
 func TestIsTransientNetworkFailure_Classification(t *testing.T) {
 	cases := []struct {
-		name   string
-		out    string
-		err    error
-		want   bool
+		name string
+		out  string
+		err  error
+		want bool
 	}{
 		{"timeout", "fatal: connection timed out", errors.New("exit 128"), true},
 		{"auth", "terminal prompts disabled", errors.New("exit 128"), false},
 		{"not found", "repository not found", errors.New("exit 128"), false},
 		{"503", "error: RPC failed; HTTP 503 curl 22", errors.New("exit 128"), true},
+		{
+			"git url error 503",
+			"fatal: unable to access 'https://example.com/repo.git': The requested URL returned error: 503\n",
+			errors.New("exit 128"),
+			true,
+		},
+		{
+			"git url error 502",
+			"fatal: unable to access 'https://example.com/repo.git': The requested URL returned error: 502\n",
+			errors.New("exit 128"),
+			true,
+		},
+		{
+			"git url error 401",
+			"fatal: unable to access 'https://example.com/repo.git': The requested URL returned error: 401\n",
+			errors.New("exit 128"),
+			false,
+		},
+		{
+			"git 401 wins over transient phrase",
+			"fatal: unable to access 'https://a/repo.git': The requested URL returned error: 401\nfatal: connection timed out\n",
+			errors.New("exit 128"),
+			false,
+		},
 		{"fetch timed out err", "", &FetchTimedOutError{Seconds: 2}, true},
 	}
 	for _, tc := range cases {
@@ -43,9 +67,9 @@ func TestRunNetworkGitWithRetry_RetriesTransientThenSucceeds(t *testing.T) {
 	}
 	cmd := exec.Command("git", "fetch")
 	params := NetworkGitParams{
-		MaxAttempts:         3,
-		InitialBackoffSec:   1,
-		MaxBackoffSec:       2,
+		MaxAttempts:       3,
+		InitialBackoffSec: 1,
+		MaxBackoffSec:     2,
 	}
 	out, err := runNetworkGitWithRetry(context.Background(), cmd, params, stub)
 	if err != nil {
@@ -66,7 +90,7 @@ func TestRunNetworkGitWithRetry_DoesNotRetryAuth(t *testing.T) {
 		return []byte("terminal prompts disabled"), errors.New("exit 128")
 	}
 	cmd := exec.Command("git", "fetch")
-	params := NetworkGitParams{MaxAttempts: 3, InitialBackoffSec: 1}
+	params := NetworkGitParams{MaxAttempts: 3, InitialBackoffSec: 1, MaxBackoffSec: 2}
 	_, err := runNetworkGitWithRetry(context.Background(), cmd, params, stub)
 	if err == nil {
 		t.Fatal("expected error")
@@ -135,7 +159,7 @@ func TestRunNetworkGitWithRetry_RespectsCancellationDuringBackoff(t *testing.T) 
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
-	params := NetworkGitParams{MaxAttempts: 5, InitialBackoffSec: 5}
+	params := NetworkGitParams{MaxAttempts: 5, InitialBackoffSec: 5, MaxBackoffSec: 5}
 	_, err := runNetworkGitWithRetry(ctx, exec.Command("git", "fetch"), params, stub)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
@@ -145,8 +169,71 @@ func TestRunNetworkGitWithRetry_RespectsCancellationDuringBackoff(t *testing.T) 
 	}
 }
 
+func TestRunNetworkGitWithRetry_CapsInitialBackoffToMax(t *testing.T) {
+	var calls int
+	stub := func(context.Context, *exec.Cmd, int) ([]byte, error) {
+		calls++
+		return []byte("connection timed out"), errors.New("exit")
+	}
+	start := time.Now()
+	params := NetworkGitParams{MaxAttempts: 2, InitialBackoffSec: 60, MaxBackoffSec: 1}
+	_, _ = runNetworkGitWithRetry(context.Background(), exec.Command("git", "fetch"), params, stub)
+	elapsed := time.Since(start)
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("elapsed %v; max backoff should cap initial wait", elapsed)
+	}
+}
+
+func TestRunNetworkGitWithRetry_ZeroBackoffImmediate(t *testing.T) {
+	var calls int
+	stub := func(context.Context, *exec.Cmd, int) ([]byte, error) {
+		calls++
+		if calls < 3 {
+			return []byte("connection timed out"), errors.New("exit")
+		}
+		return []byte("ok"), nil
+	}
+	start := time.Now()
+	params := NetworkGitParams{MaxAttempts: 3, InitialBackoffSec: 0, MaxBackoffSec: 0}
+	_, err := runNetworkGitWithRetry(context.Background(), exec.Command("git", "fetch"), params, stub)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("runNetworkGitWithRetry: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("elapsed %v; zero backoff should retry immediately", elapsed)
+	}
+}
+
+func TestNetworkGitParamsFromRain_PreservesZero(t *testing.T) {
+	p := NetworkGitParamsFromRain(RainOptions{
+		FetchRetryMaxAttempts:       0,
+		FetchRetryInitialBackoffSec: 0,
+		FetchRetryMaxBackoffSec:     0,
+	})
+	if p.MaxAttempts != 0 || p.InitialBackoffSec != 0 || p.MaxBackoffSec != 0 {
+		t.Fatalf("got %+v, want zeros preserved", p)
+	}
+	var calls int
+	stub := func(context.Context, *exec.Cmd, int) ([]byte, error) {
+		calls++
+		return []byte("connection timed out"), errors.New("exit")
+	}
+	_, _ = runNetworkGitWithRetry(context.Background(), exec.Command("git", "fetch"), p, stub)
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1 (zero max attempts => single try)", calls)
+	}
+}
+
 func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
 	var accepts atomic.Int32
+	accepted := make(chan int, 8)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -158,11 +245,9 @@ func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
 			if aerr != nil {
 				return
 			}
-			if accepts.Add(1) < 2 {
-				_ = c.Close()
-				continue
-			}
+			n := int(accepts.Add(1))
 			_ = c.Close()
+			accepted <- n
 		}
 	}()
 
@@ -172,12 +257,19 @@ func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
 			return []byte(derr.Error()), derr
 		}
 		_ = conn.Close()
-		if accepts.Load() < 2 {
-			return []byte("read: connection reset by peer"), errors.New("reset")
+		select {
+		case n := <-accepted:
+			if n < 2 {
+				return []byte("read: connection reset by peer"), errors.New("reset")
+			}
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+			return []byte("timed out waiting for accept"), errors.New("accept timeout")
 		}
-		return nil, nil
 	}
-	params := NetworkGitParams{MaxAttempts: 2, InitialBackoffSec: 1}
+	params := NetworkGitParams{MaxAttempts: 2, InitialBackoffSec: 1, MaxBackoffSec: 2}
 	_, err = runNetworkGitWithRetry(context.Background(), exec.Command("git", "fetch"), params, stub)
 	if err != nil {
 		t.Fatalf("expected success on second attempt: %v", err)
