@@ -146,7 +146,6 @@ func TestRunNetworkGitWithRetry_RespectsCancellationDuringBackoff(t *testing.T) 
 }
 
 func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
-	var accepts atomic.Int32
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -158,21 +157,18 @@ func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
 			if aerr != nil {
 				return
 			}
-			if accepts.Add(1) < 2 {
-				_ = c.Close()
-				continue
-			}
 			_ = c.Close()
 		}
 	}()
 
+	var calls atomic.Int32
 	stub := func(ctx context.Context, c *exec.Cmd, timeoutSec int) ([]byte, error) {
 		conn, derr := net.DialTimeout("tcp", ln.Addr().String(), time.Second)
 		if derr != nil {
 			return []byte(derr.Error()), derr
 		}
 		_ = conn.Close()
-		if accepts.Load() < 2 {
+		if calls.Add(1) < 2 {
 			return []byte("read: connection reset by peer"), errors.New("reset")
 		}
 		return nil, nil
