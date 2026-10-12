@@ -971,15 +971,12 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	printMu.Lock()
 	defer printMu.Unlock()
 
-	if ctx.Err() != nil {
-		fmt.Println("Aborted.")
-		return nil
-	}
-
 	if atomic.LoadInt64(&seq) == 0 {
 		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
 			if rainJSON {
-				return emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), rainTotals{}, nil)
+				if err := emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), rainTotals{}, nil); err != nil {
+					return err
+				}
 			}
 			return fmt.Errorf("interrupted")
 		}
@@ -1040,6 +1037,9 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	if rainJSON {
 		if err := emitJSONRun(buildJSONRunMeta(opts, fullSync), totals, jsonReports); err != nil {
 			return err
+		}
+		if opts.RunCtx != nil && opts.RunCtx.Err() != nil {
+			return fmt.Errorf("interrupted")
 		}
 		if totals.failed > 0 {
 			return fmt.Errorf("%d branch(es) failed — see --json output", totals.failed)

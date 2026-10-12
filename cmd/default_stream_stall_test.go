@@ -139,8 +139,8 @@ func TestRunRainDefaultStream_CancelStopsRemainingRepos(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("runRainDefaultStream: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "interrupted") {
+			t.Fatalf("runRainDefaultStream: want interrupted error, got %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("runRainDefaultStream did not return after cancel")
@@ -152,11 +152,14 @@ func TestRunRainDefaultStream_CancelStopsRemainingRepos(t *testing.T) {
 	_, _ = io.Copy(&out, r)
 	body := out.String()
 
-	if !strings.Contains(body, "Aborted.") {
-		t.Fatalf("expected Aborted. after cancel, got:\n%s", body)
+	if !strings.Contains(body, "rain interrupted") {
+		t.Fatalf("expected rain interrupted summary after cancel, got:\n%s", body)
 	}
 	if strings.Contains(body, "rain delivered") {
 		t.Fatalf("did not expect completed summary after cancel, got:\n%s", body)
+	}
+	if strings.Contains(body, "Aborted.") {
+		t.Fatalf("did not expect Aborted. after cancel, got:\n%s", body)
 	}
 	// With one worker and three stalled remotes, cancel must not fetch all three
 	// to completion (each would otherwise hang until the 30s timeout).
