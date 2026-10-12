@@ -363,10 +363,11 @@ func printRainSummary(totals rainTotals, runCtx context.Context) error {
 // and accumulates outcome counts. Each repo's output is written as a single block
 // directly to stdout. Used for the --rain TUI post-processing path; the default
 // CLI run uses runRainDefaultStream for parallel execution.
+// Stops starting new repos when RunCtx is cancelled (SIGINT/SIGTERM).
 func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals, jsonReports *[]jsonRepoResult) {
 	for i, repo := range repos {
 		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
-			break
+			return
 		}
 		var buf strings.Builder
 		delta, report := runRainOnRepo(reg, repo, rainOpts, fullSync, i+1, len(repos), &buf, !rainJSON)
@@ -381,6 +382,20 @@ func processRainRepositories(reg *registry.Registry, repos []git.Repository, rai
 		totals.frozen += delta.frozen
 		totals.failed += delta.failed
 	}
+}
+
+// reportRunInterrupted handles SIGINT/SIGTERM after work stops. Human mode prints
+// Aborted. and returns nil; --json emits schema_version 1 then a non-zero error so
+// agents do not treat cancel as a successful empty run.
+func reportRunInterrupted(rainOpts git.RainOptions, fullSync bool, totals rainTotals, reports []jsonRepoResult) error {
+	if rainJSON {
+		if err := emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), totals, reports); err != nil {
+			return err
+		}
+		return fmt.Errorf("interrupted")
+	}
+	fmt.Println("Aborted.")
+	return nil
 }
 
 // runRainOnRepo runs the rain operation for a single repository, writing its
@@ -546,9 +561,20 @@ func summarizeBranchRun(failed, frozen, updated int, branches []git.RainBranchRe
 }
 
 func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool, cfg *config.Config) error {
+	// Honor RunCtx so SIGINT/SIGTERM can stop a long scan (NotifyContext owns the signals).
+	if rainOpts.RunCtx != nil {
+		scanOpts.Ctx = rainOpts.RunCtx
+	}
 	repos, err := git.ScanRepositories(scanOpts)
 	if err != nil {
 		return fmt.Errorf("repository scan failed: %w", err)
+	}
+	if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+		if rainJSON {
+			return fmt.Errorf("interrupted")
+		}
+		fmt.Println("Aborted.")
+		return nil
 	}
 
 	if rainJSON {
@@ -617,11 +643,13 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 // The filesystem scan runs concurrently; repos stream into the picker as they
 // are discovered. After confirmation, the same default or --sync behavior runs.
 func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
-	scanParent := rainOpts.RunCtx
-	if scanParent == nil {
-		scanParent = context.Background()
+	// Derive scan cancellation from RunCtx so SIGINT/SIGTERM stops the walk
+	// (and in-flight analyze git) instead of only the network process group.
+	parent := rainOpts.RunCtx
+	if parent == nil {
+		parent = context.Background()
 	}
-	ctx, cancelScan := context.WithCancel(scanParent)
+	ctx, cancelScan := context.WithCancel(parent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -971,9 +999,15 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	printMu.Lock()
 	defer printMu.Unlock()
 
+	totals := rainTotals{
+		updated: int(atomic.LoadInt64(&updated)),
+		skipped: int(atomic.LoadInt64(&skipped)),
+		frozen:  int(atomic.LoadInt64(&frozen)),
+		failed:  int(atomic.LoadInt64(&failed)),
+	}
+
 	if ctx.Err() != nil {
-		fmt.Println("Aborted.")
-		return nil
+		return reportRunInterrupted(rainOpts, fullSync, totals, jsonReports)
 	}
 
 	if atomic.LoadInt64(&seq) == 0 {
@@ -988,13 +1022,6 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		}
 		fmt.Println("No git repositories found.")
 		return nil
-	}
-
-	totals := rainTotals{
-		updated: int(atomic.LoadInt64(&updated)),
-		skipped: int(atomic.LoadInt64(&skipped)),
-		frozen:  int(atomic.LoadInt64(&frozen)),
-		failed:  int(atomic.LoadInt64(&failed)),
 	}
 
 	if rainJSON {
@@ -1036,6 +1063,10 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	totals := rainTotals{}
 	var jsonReports []jsonRepoResult
 	processRainRepositories(reg, repos, opts, fullSync, &totals, &jsonReports)
+
+	if opts.RunCtx != nil && opts.RunCtx.Err() != nil {
+		return reportRunInterrupted(opts, fullSync, totals, jsonReports)
+	}
 
 	if rainJSON {
 		if err := emitJSONRun(buildJSONRunMeta(opts, fullSync), totals, jsonReports); err != nil {
