@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-runewidth"
@@ -158,6 +160,11 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainFetchTimeout >= 0 {
 		fetchTimeoutSec = rainFetchTimeout
 	}
+	// Network git runs in their own process group (Setpgid) so a terminal
+	// SIGINT no longer reaches git-remote-*/ssh. Cancel RunCtx on interrupt
+	// so RunNetworkGit can kill the whole group before we exit.
+	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	rainOpts := git.RainOptions{
 		RiskyMode:        cfg.Global.RiskyMode || rainRisky,
 		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
@@ -165,6 +172,7 @@ func runRain(_ *cobra.Command, _ []string) error {
 		FetchPrune:       cfg.Global.FetchPrune,
 		MainlinePatterns: cfg.Global.MainlinePatterns,
 		FetchTimeoutSec:  fetchTimeoutSec,
+		RunCtx:           runCtx,
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
@@ -762,7 +770,13 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		fmt.Println()
 	}
 
-	ctx, cancelScan := context.WithCancel(context.Background())
+	// Derive scan/worker cancellation from RunCtx so SIGINT/SIGTERM stops the
+	// whole run (not only the in-flight network git process group).
+	parent := rainOpts.RunCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancelScan := context.WithCancel(parent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -867,6 +881,10 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		go func() {
 			defer workersWG.Done()
 			for repo := range repoChan {
+				// Drain remaining work without fetching after interrupt/cancel.
+				if ctx.Err() != nil {
+					continue
+				}
 				current := int(atomic.AddInt64(&seq, 1))
 				total := int(atomic.LoadInt64(&totalFound))
 				// While the scan is still running, total may equal current
@@ -911,6 +929,11 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 
 	printMu.Lock()
 	defer printMu.Unlock()
+
+	if ctx.Err() != nil {
+		fmt.Println("Aborted.")
+		return nil
+	}
 
 	if atomic.LoadInt64(&seq) == 0 {
 		if rainJSON {
