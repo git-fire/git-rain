@@ -83,6 +83,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("global.scan_depth", defaults.Global.ScanDepth)
 	v.SetDefault("global.scan_workers", defaults.Global.ScanWorkers)
 	v.SetDefault("global.fetch_workers", defaults.Global.FetchWorkers)
+	v.SetDefault("global.fetch_timeout_sec", defaults.Global.FetchTimeoutSec)
 	v.SetDefault("global.default_mode", defaults.Global.DefaultMode)
 	v.SetDefault("global.rescan_submodules", defaults.Global.RescanSubmodules)
 	v.SetDefault("global.disable_scan", defaults.Global.DisableScan)

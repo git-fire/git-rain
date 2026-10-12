@@ -2,6 +2,7 @@ package config
 
 const (
 	DefaultFetchWorkers              = 4
+	DefaultFetchTimeoutSec           = 120
 	DefaultUIRainTickMS              = 150
 	DefaultUIStartupQuoteIntervalSec = 10
 )
@@ -24,6 +25,7 @@ func DefaultConfig() Config {
 			ScanDepth:        10,
 			ScanWorkers:      8,
 			FetchWorkers:     DefaultFetchWorkers,
+			FetchTimeoutSec:  DefaultFetchTimeoutSec,
 			DefaultMode:      "sync-default",
 			RescanSubmodules: false,
 			DisableScan:      false,
@@ -78,6 +80,9 @@ scan_workers = 8
 
 # Number of parallel workers for fetching/updating repositories
 fetch_workers = 4
+
+# Per-fetch deadline in seconds for network git (0 = no timeout)
+fetch_timeout_sec = 120
 
 # Default mode for repos (used by registry opt-out model)
 default_mode = "sync-default"

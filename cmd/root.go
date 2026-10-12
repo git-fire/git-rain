@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-runewidth"
@@ -44,6 +46,7 @@ var (
 	rainSyncTags        bool
 	rainPrune           bool
 	rainNoPrune         bool
+	rainFetchTimeout    int
 	forceUnlockRegistry bool
 	rainJSON            bool
 	rainNonInteractive  bool
@@ -106,6 +109,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainSyncTags, "tags", false, "Fetch all tags from remotes (default: off)")
 	rootCmd.Flags().BoolVar(&rainPrune, "prune", false, "Pass --prune on git fetch for this run (overrides config and per-repo settings)")
 	rootCmd.Flags().BoolVar(&rainNoPrune, "no-prune", false, "Never pass --prune on git fetch for this run (overrides --prune and global/repo enablement)")
+	rootCmd.Flags().IntVar(&rainFetchTimeout, "fetch-timeout", -1, "Per-fetch network timeout in seconds (0 = disabled; default from config global.fetch_timeout_sec)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 	rootCmd.Flags().BoolVar(&rainJSON, "json", false, "Emit machine-readable JSON summary on stdout (schema_version 1; see AGENTS.md)")
 	rootCmd.Flags().BoolVar(&rainNonInteractive, "non-interactive", false, "Never prompt or open the TUI (also implied when stdin is not a terminal; set GIT_RAIN_NON_INTERACTIVE=1)")
@@ -152,12 +156,23 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainBranchMode != "" {
 		branchModeStr = rainBranchMode
 	}
+	fetchTimeoutSec := cfg.Global.FetchTimeoutSec
+	if rainFetchTimeout >= 0 {
+		fetchTimeoutSec = rainFetchTimeout
+	}
+	// Network git runs in their own process group (Setpgid) so a terminal
+	// SIGINT no longer reaches git-remote-*/ssh. Cancel RunCtx on interrupt
+	// so RunNetworkGit can kill the whole group before we exit.
+	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	rainOpts := git.RainOptions{
 		RiskyMode:        cfg.Global.RiskyMode || rainRisky,
 		BranchMode:       git.ParseBranchSyncMode(branchModeStr),
 		SyncTags:         cfg.Global.SyncTags || rainSyncTags,
 		FetchPrune:       cfg.Global.FetchPrune,
 		MainlinePatterns: cfg.Global.MainlinePatterns,
+		FetchTimeoutSec:  fetchTimeoutSec,
+		RunCtx:           runCtx,
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
@@ -302,6 +317,9 @@ func fetchFailureMessage(errMsg string) string {
 		strings.Contains(s, "could not read") || strings.Contains(s, "401") || strings.Contains(s, "403") {
 		return "could not authenticate with remote — check your credentials and try again"
 	}
+	if idx := strings.Index(strings.ToLower(errMsg), "timed out after"); idx >= 0 {
+		return strings.TrimSpace(errMsg[idx:])
+	}
 	if strings.Contains(s, "could not resolve") || strings.Contains(s, "connection") ||
 		strings.Contains(s, "timed out") || strings.Contains(s, "network") {
 		return "could not reach remote — check your network and try again"
@@ -320,8 +338,12 @@ type rainTotals struct {
 // and accumulates outcome counts. Each repo's output is written as a single block
 // directly to stdout. Used for the --rain TUI post-processing path; the default
 // CLI run uses runRainDefaultStream for parallel execution.
+// Stops starting new repos when RunCtx is cancelled (SIGINT/SIGTERM).
 func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals, jsonReports *[]jsonRepoResult) {
 	for i, repo := range repos {
+		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+			return
+		}
 		var buf strings.Builder
 		delta, report := runRainOnRepo(reg, repo, rainOpts, fullSync, i+1, len(repos), &buf, !rainJSON)
 		if !rainJSON {
@@ -335,6 +357,20 @@ func processRainRepositories(reg *registry.Registry, repos []git.Repository, rai
 		totals.frozen += delta.frozen
 		totals.failed += delta.failed
 	}
+}
+
+// reportRunInterrupted handles SIGINT/SIGTERM after work stops. Human mode prints
+// Aborted. and returns nil; --json emits schema_version 1 then a non-zero error so
+// agents do not treat cancel as a successful empty run.
+func reportRunInterrupted(rainOpts git.RainOptions, fullSync bool, totals rainTotals, reports []jsonRepoResult) error {
+	if rainJSON {
+		if err := emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), totals, reports); err != nil {
+			return err
+		}
+		return fmt.Errorf("interrupted")
+	}
+	fmt.Println("Aborted.")
+	return nil
 }
 
 // runRainOnRepo runs the rain operation for a single repository, writing its
@@ -380,7 +416,11 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 
 	if !fullSync && !rainFetchMainline {
 		report.Operation = "fetch-all"
-		if fetchErr := fetchOnly(repo.Path, repoOpts); fetchErr != nil {
+		fetchCtx := repoOpts.RunCtx
+		if fetchCtx == nil {
+			fetchCtx = rainOpts.RunCtx
+		}
+		if fetchErr := fetchOnly(fetchCtx, repo.Path, repoOpts); fetchErr != nil {
 			msg := safety.SanitizeText(fetchFailureMessage(fetchErr.Error()))
 			if emitHuman {
 				_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n", msg)
@@ -489,9 +529,20 @@ func summarizeBranchRun(failed, frozen, updated int, branches []git.RainBranchRe
 }
 
 func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool, cfg *config.Config) error {
+	// Honor RunCtx so SIGINT/SIGTERM can stop a long scan (NotifyContext owns the signals).
+	if rainOpts.RunCtx != nil {
+		scanOpts.Ctx = rainOpts.RunCtx
+	}
 	repos, err := git.ScanRepositories(scanOpts)
 	if err != nil {
 		return fmt.Errorf("repository scan failed: %w", err)
+	}
+	if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+		if rainJSON {
+			return fmt.Errorf("interrupted")
+		}
+		fmt.Println("Aborted.")
+		return nil
 	}
 
 	if rainJSON {
@@ -560,7 +611,13 @@ func runDryRun(scanOpts git.ScanOptions, rainOpts git.RainOptions, fullSync bool
 // The filesystem scan runs concurrently; repos stream into the picker as they
 // are discovered. After confirmation, the same default or --sync behavior runs.
 func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string, opts git.ScanOptions, rainOpts git.RainOptions, fullSync bool) error {
-	ctx, cancelScan := context.WithCancel(context.Background())
+	// Derive scan cancellation from RunCtx so SIGINT/SIGTERM stops the walk
+	// (and in-flight analyze git) instead of only the network process group.
+	parent := rainOpts.RunCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancelScan := context.WithCancel(parent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -748,7 +805,13 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		fmt.Println()
 	}
 
-	ctx, cancelScan := context.WithCancel(context.Background())
+	// Derive scan/worker cancellation from RunCtx so SIGINT/SIGTERM stops the
+	// whole run (not only the in-flight network git process group).
+	parent := rainOpts.RunCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancelScan := context.WithCancel(parent)
 	defer cancelScan()
 	opts.Ctx = ctx
 
@@ -853,6 +916,10 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		go func() {
 			defer workersWG.Done()
 			for repo := range repoChan {
+				// Drain remaining work without fetching after interrupt/cancel.
+				if ctx.Err() != nil {
+					continue
+				}
 				current := int(atomic.AddInt64(&seq, 1))
 				total := int(atomic.LoadInt64(&totalFound))
 				// While the scan is still running, total may equal current
@@ -898,19 +965,23 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	printMu.Lock()
 	defer printMu.Unlock()
 
+	totals := rainTotals{
+		updated: int(atomic.LoadInt64(&updated)),
+		skipped: int(atomic.LoadInt64(&skipped)),
+		frozen:  int(atomic.LoadInt64(&frozen)),
+		failed:  int(atomic.LoadInt64(&failed)),
+	}
+
+	if ctx.Err() != nil {
+		return reportRunInterrupted(rainOpts, fullSync, totals, jsonReports)
+	}
+
 	if atomic.LoadInt64(&seq) == 0 {
 		if rainJSON {
 			return emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), rainTotals{}, nil)
 		}
 		fmt.Println("No git repositories found.")
 		return nil
-	}
-
-	totals := rainTotals{
-		updated: int(atomic.LoadInt64(&updated)),
-		skipped: int(atomic.LoadInt64(&skipped)),
-		frozen:  int(atomic.LoadInt64(&frozen)),
-		failed:  int(atomic.LoadInt64(&failed)),
 	}
 
 	if rainJSON {
@@ -962,6 +1033,10 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	var jsonReports []jsonRepoResult
 	processRainRepositories(reg, repos, opts, fullSync, &totals, &jsonReports)
 
+	if opts.RunCtx != nil && opts.RunCtx.Err() != nil {
+		return reportRunInterrupted(opts, fullSync, totals, jsonReports)
+	}
+
 	if rainJSON {
 		if err := emitJSONRun(buildJSONRunMeta(opts, fullSync), totals, jsonReports); err != nil {
 			return err
@@ -1010,7 +1085,10 @@ func applyRepoFetchPrune(repoPath string, base git.RainOptions, absPath string, 
 	return opt, nil
 }
 
-func fetchOnly(repoPath string, opts git.RainOptions) error {
+func fetchOnly(ctx context.Context, repoPath string, opts git.RainOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	fetchArgs := []string{"fetch", "--all"}
 	if opts.FetchPrune {
 		fetchArgs = append(fetchArgs, "--prune")
@@ -1020,8 +1098,12 @@ func fetchOnly(repoPath string, opts git.RainOptions) error {
 	}
 	cmd := exec.Command("git", fetchArgs...)
 	cmd.Dir = repoPath
-	git.PrepareNetworkGit(cmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := git.RunNetworkGit(ctx, cmd, opts.FetchTimeoutSec)
+	if err != nil {
+		var timedOut *git.FetchTimedOutError
+		if errors.As(err, &timedOut) {
+			return fmt.Errorf("%s: %s", strings.Join(append([]string{"git"}, fetchArgs...), " "), timedOut.Error())
+		}
 		return fmt.Errorf("%s: %w (output: %s)", strings.Join(append([]string{"git"}, fetchArgs...), " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil

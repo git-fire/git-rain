@@ -23,6 +23,9 @@ type GlobalConfig struct {
 	// FetchWorkers controls parallel per-repo rain operations.
 	FetchWorkers int `mapstructure:"fetch_workers" toml:"fetch_workers"`
 
+	// FetchTimeoutSec is the per-fetch deadline in seconds (0 = no timeout).
+	FetchTimeoutSec int `mapstructure:"fetch_timeout_sec" toml:"fetch_timeout_sec"`
+
 	// Default mode for repos (used for registry opt-out model).
 	DefaultMode string `mapstructure:"default_mode" toml:"default_mode"`
 

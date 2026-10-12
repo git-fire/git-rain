@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -146,9 +147,13 @@ func MainlineFetchRemotes(repoPath string, opts RainOptions) (RainResult, error)
 		}
 		cmd := exec.Command("git", args...)
 		cmd.Dir = repoPath
-		PrepareNetworkGit(cmd)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			failedReason[remote] = fetchFailureReason(output)
+		runCtx := opts.RunCtx
+		if runCtx == nil {
+			runCtx = context.Background()
+		}
+		output, err := RunNetworkGit(runCtx, cmd, opts.FetchTimeoutSec)
+		if err != nil {
+			failedReason[remote] = fetchFailureReasonForErr(output, err)
 		}
 	}
 
