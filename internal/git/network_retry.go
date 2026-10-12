@@ -112,16 +112,15 @@ func isTransientNetworkFailure(output []byte, err error) bool {
 	if err == nil {
 		return false
 	}
-	var timedOut *FetchTimedOutError
-	if errors.As(err, &timedOut) {
-		return true
-	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 
 	s := strings.ToLower(string(output) + " " + err.Error())
 
+	// Auth / permanent failures must win over FetchTimedOutError: a multi-remote
+	// fetch can log authentication failed (or similar) and still hit the attempt
+	// deadline if another remote hangs.
 	nonRetry := []string{
 		"authentication failed",
 		"could not read username",
@@ -142,6 +141,11 @@ func isTransientNetworkFailure(output []byte, err error) bool {
 		if strings.Contains(s, p) {
 			return false
 		}
+	}
+
+	var timedOut *FetchTimedOutError
+	if errors.As(err, &timedOut) {
+		return true
 	}
 
 	transient := []string{

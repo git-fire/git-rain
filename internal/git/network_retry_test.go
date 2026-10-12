@@ -48,6 +48,9 @@ func TestIsTransientNetworkFailure_Classification(t *testing.T) {
 			false,
 		},
 		{"fetch timed out err", "", &FetchTimedOutError{Seconds: 2}, true},
+		{"fetch timed out with auth", "fatal: Authentication failed for 'https://example.com/repo.git'", &FetchTimedOutError{Seconds: 2}, false},
+		{"fetch timed out with prompts disabled", "fatal: could not read Username for 'https://example.com': terminal prompts disabled", &FetchTimedOutError{Seconds: 2}, false},
+		{"fetch timed out with 403", "remote: HTTP 403\n fatal: unable to access", &FetchTimedOutError{Seconds: 2}, false},
 	}
 	for _, tc := range cases {
 		if got := isTransientNetworkFailure([]byte(tc.out), tc.err); got != tc.want {
@@ -97,6 +100,27 @@ func TestRunNetworkGitWithRetry_DoesNotRetryAuth(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("calls = %d, want 1 (no retry on auth)", calls)
+	}
+}
+
+func TestRunNetworkGitWithRetry_DoesNotRetryTimeoutAfterAuthOutput(t *testing.T) {
+	var calls int
+	stub := func(context.Context, *exec.Cmd, int) ([]byte, error) {
+		calls++
+		return []byte("fatal: Authentication failed for 'https://example.com/a.git'\n"), &FetchTimedOutError{Seconds: 2}
+	}
+	cmd := exec.Command("git", "fetch", "--all")
+	params := NetworkGitParams{MaxAttempts: 3, InitialBackoffSec: 1}
+	_, err := runNetworkGitWithRetry(context.Background(), cmd, params, stub)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var timedOut *FetchTimedOutError
+	if !errors.As(err, &timedOut) {
+		t.Fatalf("err = %v, want FetchTimedOutError", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1 (no retry when timeout follows auth failure)", calls)
 	}
 }
 
