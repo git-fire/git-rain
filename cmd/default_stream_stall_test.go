@@ -294,7 +294,7 @@ func TestRunRainOnRepos_CancelSkipsRemaining(t *testing.T) {
 	done := make(chan error, 1)
 	start := time.Now()
 	go func() {
-		done <- runRainOnRepos(&registry.Registry{}, repos, rainOpts, false)
+		done <- runRainOnRepos(&registry.Registry{}, repos, rainOpts, false, 1)
 	}()
 
 	time.Sleep(300 * time.Millisecond)
