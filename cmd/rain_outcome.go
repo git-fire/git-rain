@@ -14,7 +14,9 @@ import (
 // works when human CLI output is suppressed (quiet TUI rain phase).
 func classifyRepoRainOutcome(repoCtx context.Context, delta rainTotals, report jsonRepoResult) (rainexec.RepoState, rainTotals) {
 	cancelled := repoCtx != nil && errors.Is(repoCtx.Err(), context.Canceled)
-	workDone := delta.updated > 0 || delta.skipped > 0
+	// Only successful updates count as completed work. Branch skips (no-upstream,
+	// etc.) are recorded before fetch and must not mask a user cancel as done.
+	workDone := delta.updated > 0
 
 	if cancelled {
 		if workDone {
