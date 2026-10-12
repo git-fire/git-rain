@@ -53,8 +53,8 @@ func repoHasCoreSSHCommand(repoDir string, env []string) bool {
 	if strings.TrimSpace(repoDir) == "" {
 		return false
 	}
-	cmd := exec.Command("git", "-C", repoDir, "config", "--get", "core.sshCommand")
-	cmd.Env = env
-	out, err := cmd.Output()
+	probe := exec.Command("git", "-C", repoDir, "config", "--get", "core.sshCommand")
+	probe.Env = env
+	out, err := probe.Output()
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
