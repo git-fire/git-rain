@@ -23,9 +23,9 @@ func emitRainEvent(ch chan<- rainexec.Event, e rainexec.Event) {
 // runRainReposParallel runs fetch/rain for repos using the same bounded worker
 // pool as the default streaming CLI path. When progress is non-nil, repo status
 // events are emitted; when quiet is true, per-repo CLI blocks are suppressed.
-func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int, progress chan rainexec.Event, coord *rainCoordinator, quiet bool) rainTotals {
+func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int, progress chan rainexec.Event, coord *rainCoordinator, quiet bool) (rainTotals, []jsonRepoResult) {
 	if len(repos) == 0 {
-		return rainTotals{}
+		return rainTotals{}, nil
 	}
 
 	for _, repo := range repos {
@@ -52,6 +52,8 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 		seq     int64
 	)
 	total := int64(len(repos))
+	var jsonReports []jsonRepoResult
+	var jsonReportsMu sync.Mutex
 
 	runCtx := rainOpts.RunCtx
 	var workersWG sync.WaitGroup
@@ -61,7 +63,7 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 			defer workersWG.Done()
 			for repo := range repoChan {
 				if runCtx != nil && runCtx.Err() != nil {
-					break
+					continue
 				}
 				repoCtx := runCtx
 				if coord != nil {
@@ -106,7 +108,8 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 
 				current := int(atomic.AddInt64(&seq, 1))
 				var buf strings.Builder
-				delta := runRainOnRepo(reg, repo, repoOpts, fullSync, current, int(total), &buf)
+				emitHuman := !quiet && !rainJSON
+				delta, report := runRainOnRepo(reg, repo, repoOpts, fullSync, current, int(total), &buf, emitHuman)
 				state, delta := classifyRepoRainOutcome(repoCtx, delta, buf.String())
 				detail := ""
 				if state == rainexec.StateSkipped {
@@ -120,11 +123,18 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 					Detail:    detail,
 				})
 
-				if !quiet {
+				if emitHuman {
 					printMu.Lock()
 					_, _ = io.WriteString(os.Stdout, buf.String())
 					printMu.Unlock()
 				}
+
+				if rainJSON {
+					jsonReportsMu.Lock()
+					jsonReports = append(jsonReports, report)
+					jsonReportsMu.Unlock()
+				}
+
 				atomic.AddInt64(&updated, int64(delta.updated))
 				atomic.AddInt64(&skipped, int64(delta.skipped))
 				atomic.AddInt64(&frozen, int64(delta.frozen))
@@ -139,5 +149,5 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 		skipped: int(skipped),
 		frozen:  int(frozen),
 		failed:  int(failed),
-	}
+	}, jsonReports
 }

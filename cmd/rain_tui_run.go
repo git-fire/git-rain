@@ -22,7 +22,7 @@ func runRainOnReposTUI(cfg *config.Config, reg *registry.Registry, repos []git.R
 	done := make(chan rainTotals, 1)
 
 	go func() {
-		totals := runRainReposParallel(reg, repos, opts, fullSync, cfg.Global.FetchWorkers, events, coord, true)
+		totals, _ := runRainReposParallel(reg, repos, opts, fullSync, cfg.Global.FetchWorkers, events, coord, true)
 		close(events)
 		done <- totals
 	}()
