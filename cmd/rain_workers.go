@@ -117,7 +117,7 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 				var buf strings.Builder
 				emitHuman := !quiet && !rainJSON
 				delta, report := runRainOnRepo(reg, repo, repoOpts, fullSync, job.index, total, &buf, emitHuman)
-				state, delta := classifyRepoRainOutcome(repoCtx, delta, buf.String())
+				state, delta := classifyRepoRainOutcome(repoCtx, delta, report)
 				detail := ""
 				if state == rainexec.StateSkipped {
 					detail = "skipped"
