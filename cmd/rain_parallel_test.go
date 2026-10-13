@@ -102,7 +102,7 @@ func TestRunRainReposParallel_PreservesSelectionIndex(t *testing.T) {
 	os.Stdout = w
 	defer func() { os.Stdout = oldStdout }()
 
-	totals, reports := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{FetchTimeoutSec: 2}, false, 2)
+	totals, reports := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{FetchTimeoutSec: 2}, false, 2, nil, nil, false)
 	_ = w.Close()
 	var out bytes.Buffer
 	_, _ = io.Copy(&out, r)
