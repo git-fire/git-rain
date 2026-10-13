@@ -359,31 +359,6 @@ func printRainSummary(totals rainTotals, runCtx context.Context) error {
 	return nil
 }
 
-// processRainRepositories runs fetch or full rain for each repository sequentially
-// and accumulates outcome counts. Each repo's output is written as a single block
-// directly to stdout. Used for the --rain TUI post-processing path; the default
-// CLI run uses runRainDefaultStream for parallel execution.
-// Stops starting new repos when RunCtx is cancelled (SIGINT/SIGTERM).
-func processRainRepositories(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, totals *rainTotals, jsonReports *[]jsonRepoResult) {
-	for i, repo := range repos {
-		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
-			return
-		}
-		var buf strings.Builder
-		delta, report := runRainOnRepo(reg, repo, rainOpts, fullSync, i+1, len(repos), &buf, !rainJSON)
-		if !rainJSON {
-			_, _ = io.WriteString(os.Stdout, buf.String())
-		}
-		if jsonReports != nil {
-			*jsonReports = append(*jsonReports, report)
-		}
-		totals.updated += delta.updated
-		totals.skipped += delta.skipped
-		totals.frozen += delta.frozen
-		totals.failed += delta.failed
-	}
-}
-
 // reportRunInterrupted handles SIGINT/SIGTERM after work stops. Human mode prints
 // Aborted. and returns nil; --json emits schema_version 1 then a non-zero error so
 // agents do not treat cancel as a successful empty run.
@@ -746,7 +721,7 @@ func runRainTUIStream(cfg *config.Config, reg *registry.Registry, regPath string
 	}
 	fmt.Println()
 
-	return runRainOnRepos(reg, selected, rainOpts, fullSync)
+	return runRainOnRepos(reg, selected, rainOpts, fullSync, cfg.Global.FetchWorkers)
 }
 
 // fetchWorkerCount returns the per-run parallel fetch worker count, clamped
@@ -1043,7 +1018,7 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 }
 
 // runRainOnRepos runs fetch or full rain on a pre-selected list of repos.
-func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.RainOptions, fullSync bool) error {
+func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.RainOptions, fullSync bool, fetchWorkers int) error {
 	if !rainJSON {
 		fmt.Println("🌧️  Git Rain")
 	}
@@ -1062,9 +1037,7 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 		fmt.Println()
 	}
 
-	totals := rainTotals{}
-	var jsonReports []jsonRepoResult
-	processRainRepositories(reg, repos, opts, fullSync, &totals, &jsonReports)
+	totals, jsonReports := runRainReposParallel(reg, repos, opts, fullSync, fetchWorkers)
 
 	if opts.RunCtx != nil && opts.RunCtx.Err() != nil {
 		return reportRunInterrupted(opts, fullSync, totals, jsonReports)
@@ -1073,6 +1046,9 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 	if rainJSON {
 		if err := emitJSONRun(buildJSONRunMeta(opts, fullSync), totals, jsonReports); err != nil {
 			return err
+		}
+		if opts.RunCtx != nil && opts.RunCtx.Err() != nil {
+			return fmt.Errorf("interrupted")
 		}
 		if totals.failed > 0 {
 			return fmt.Errorf("%d branch(es) failed — see --json output", totals.failed)
