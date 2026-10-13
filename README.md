@@ -314,6 +314,7 @@ git-rain --init
 | `--prune` | Pass `--prune` on fetch for this run (highest precedence; cannot combine with `--no-prune`) |
 | `--no-prune` | Never pass `--prune` on fetch for this run (overrides `--prune`, config, registry, and `rain.fetchprune`) |
 | `--tags` | Also pass `--tags` on fetch operations |
+| `--fetch-timeout <sec>` | Per-fetch network deadline in seconds (`0` = disabled; default from `global.fetch_timeout_sec`) |
 | `--path <dir>` | Scan path override (default: config `global.scan_path`) |
 | `--no-scan` | Skip filesystem scan; hydrate only known registry repos |
 | `--risky` | Allow destructive local branch realignment after creating backup refs |
@@ -340,6 +341,7 @@ scan_path    = "/home/you/projects"   # root to discover repos under
 scan_depth   = 5                      # max directory depth (default in app: 10)
 scan_workers = 8                    # parallel scan workers
 fetch_workers = 4                   # parallel per-repo operations (default in app: 4)
+fetch_timeout_sec = 120             # per-fetch network deadline (0 = no timeout)
 risky_mode   = false                # allow destructive realignment on full hydration path
 branch_mode  = "mainline"           # full hydration: mainline | checked-out | all-local | all-branches
 fetch_prune  = false                # pass --prune on fetch when true (default off; see README warning)
@@ -363,7 +365,13 @@ All options can be overridden with environment variables using the `GIT_RAIN_` p
 ```bash
 GIT_RAIN_GLOBAL_RISKY_MODE=true git-rain
 GIT_RAIN_GLOBAL_SCAN_PATH=/tmp/repos git-rain
+GIT_RAIN_GLOBAL_FETCH_TIMEOUT_SEC=60 git-rain
 ```
+
+Network fetches set `GIT_TERMINAL_PROMPT=0` and, unless you already configured
+`GIT_SSH_COMMAND`, `core.sshCommand`, or the HTTP low-speed variables, add
+batch-mode SSH (`BatchMode=yes`, `ConnectTimeout=30`) and HTTP stall detection
+(`GIT_HTTP_LOW_SPEED_LIMIT` / `GIT_HTTP_LOW_SPEED_TIME`).
 
 ### Garden mode tuning (advanced)
 
