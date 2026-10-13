@@ -67,13 +67,13 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 			defer workersWG.Done()
 			for job := range repoChan {
 				repo := job.repo
-				if runCtx != nil && runCtx.Err() != nil {
-					continue
-				}
 				repoCtx := runCtx
 				if coord != nil {
 					repoCtx = coord.ContextFor(repo.Path)
 				}
+				// Parent abort cancels runCtx (and per-repo children). Count every
+				// not-yet-started job as skipped so the interrupted summary includes
+				// queued work, not only in-flight repos that already passed this check.
 				if repoCtx != nil && repoCtx.Err() != nil {
 					emitRainEvent(progress, rainexec.Event{
 						RepoPath: repo.Path,

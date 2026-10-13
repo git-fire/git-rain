@@ -164,3 +164,39 @@ func TestRunRainReposParallel_PreStartCancelCountsSkipped(t *testing.T) {
 		t.Fatal("expected skipped progress event for pre-start cancel")
 	}
 }
+
+func TestRunRainReposParallel_ParentAbortCountsQueuedSkipped(t *testing.T) {
+	// Mirror TUI Abort: cancel per-repo contexts and the shared runCtx while more
+	// repos are queued than workers can run at once.
+	repos := []git.Repository{
+		{Name: "queued-a", Path: "/tmp/git-rain-never-a"},
+		{Name: "queued-b", Path: "/tmp/git-rain-never-b"},
+		{Name: "queued-c", Path: "/tmp/git-rain-never-c"},
+	}
+	paths := []string{repos[0].Path, repos[1].Path, repos[2].Path}
+	runCtx, abortRun := context.WithCancel(context.Background())
+	coord := newRainCoordinator(runCtx, paths)
+	coord.AbortAll()
+	abortRun()
+
+	progress := make(chan rainexec.Event, 16)
+	totals, _ := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{RunCtx: runCtx}, false, 1, progress, coord, true)
+	close(progress)
+
+	if totals.skipped != len(repos) {
+		t.Fatalf("totals.skipped = %d, want %d (abort must count queued repos)", totals.skipped, len(repos))
+	}
+	if totals.updated != 0 || totals.frozen != 0 || totals.failed != 0 {
+		t.Fatalf("unexpected non-skip totals: %+v", totals)
+	}
+
+	skippedEvents := 0
+	for e := range progress {
+		if e.State == rainexec.StateSkipped {
+			skippedEvents++
+		}
+	}
+	if skippedEvents != len(repos) {
+		t.Fatalf("skipped events = %d, want %d", skippedEvents, len(repos))
+	}
+}
