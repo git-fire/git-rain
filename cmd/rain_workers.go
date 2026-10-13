@@ -81,6 +81,7 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 						State:    rainexec.StateSkipped,
 						Detail:   "skipped",
 					})
+					atomic.AddInt64(&skipped, 1)
 					continue
 				}
 

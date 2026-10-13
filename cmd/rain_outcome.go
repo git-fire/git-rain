@@ -25,6 +25,11 @@ func classifyRepoRainOutcome(repoCtx context.Context, delta rainTotals, report j
 		d := delta
 		d.frozen = 0
 		d.failed = 0
+		// Paths that record cancel as frozen (e.g. --fetch-mainline) leave
+		// skipped at 0; ensure the repo still appears in the summary.
+		if d.skipped == 0 {
+			d.skipped = 1
+		}
 		return rainexec.StateSkipped, d
 	}
 
