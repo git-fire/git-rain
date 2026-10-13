@@ -20,10 +20,10 @@ func TestRainRunModel_AppliesProgressEvents(t *testing.T) {
 	}
 	started := time.Now()
 	m.applyEvent(rainexec.Event{
-		RepoPath: "/a",
-		State:    rainexec.StateRunning,
-		StartedAt: started,
-		Attempt:  1,
+		RepoPath:    "/a",
+		State:       rainexec.StateRunning,
+		StartedAt:   started,
+		Attempt:     1,
 		MaxAttempts: 2,
 	})
 	if m.rows[0].state != rainexec.StateRunning {
@@ -76,6 +76,56 @@ func TestRainRunModel_QuitKeyAborts(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected quit cmd")
+	}
+}
+
+func TestRainRunModel_ViewScrollsWithCursor(t *testing.T) {
+	rows := make([]rainRepoRow, 10)
+	for i := range rows {
+		rows[i] = rainRepoRow{path: fmt.Sprintf("/%d", i), name: fmt.Sprintf("repo-%02d", i), state: rainexec.StateQueued}
+	}
+	// height 6 → 3 header lines + 3 visible repo rows
+	m := rainRunModel{rows: rows, height: 6, width: 80, cursor: 0}
+
+	view := m.View()
+	if !strings.Contains(view, "repo-00") || strings.Contains(view, "repo-09") {
+		t.Fatalf("expected top of list visible, got:\n%s", view)
+	}
+
+	for range 9 {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(rainRunModel)
+	}
+	if m.cursor != 9 {
+		t.Fatalf("cursor = %d, want 9", m.cursor)
+	}
+	view = m.View()
+	if !strings.Contains(view, "repo-09") || strings.Contains(view, "repo-00") {
+		t.Fatalf("expected bottom of list visible after scrolling, got:\n%s", view)
+	}
+	if m.scrollOffset != 7 { // visible=3, cursor=9 → offset=7
+		t.Fatalf("scrollOffset = %d, want 7", m.scrollOffset)
+	}
+}
+
+func TestClampRainScroll(t *testing.T) {
+	tests := []struct {
+		offset, cursor, visible, total, want int
+	}{
+		{0, 0, 3, 10, 0},
+		{0, 2, 3, 10, 0},
+		{0, 3, 3, 10, 1},
+		{5, 4, 3, 10, 4},
+		{8, 9, 3, 10, 7},
+		{0, 0, 3, 2, 0},
+		{0, 0, 0, 10, 0},
+	}
+	for _, tc := range tests {
+		got := clampRainScroll(tc.offset, tc.cursor, tc.visible, tc.total)
+		if got != tc.want {
+			t.Fatalf("clampRainScroll(%d,%d,%d,%d)=%d, want %d",
+				tc.offset, tc.cursor, tc.visible, tc.total, got, tc.want)
+		}
 	}
 }
 

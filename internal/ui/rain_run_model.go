@@ -23,23 +23,24 @@ type RainControls struct {
 }
 
 type rainRepoRow struct {
-	path, name string
-	state      rainexec.RepoState
-	attempt    int
+	path, name  string
+	state       rainexec.RepoState
+	attempt     int
 	maxAttempts int
-	startedAt  time.Time
-	detail     string
+	startedAt   time.Time
+	detail      string
 }
 
 type rainRunModel struct {
-	rows       []rainRepoRow
-	cursor     int
-	timeoutSec int
-	events     <-chan rainexec.Event
-	ctrl       RainControls
-	aborted    bool
-	width      int
-	height     int
+	rows         []rainRepoRow
+	cursor       int
+	scrollOffset int
+	timeoutSec   int
+	events       <-chan rainexec.Event
+	ctrl         RainControls
+	aborted      bool
+	width        int
+	height       int
 }
 
 type rainEventMsg rainexec.Event
@@ -91,6 +92,7 @@ func (m rainRunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.scrollOffset = clampRainScroll(m.scrollOffset, m.cursor, m.listVisible(), len(m.rows))
 		return m, nil
 	case rainEventMsg:
 		m.applyEvent(rainexec.Event(msg))
@@ -103,10 +105,12 @@ func (m rainRunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			m.scrollOffset = clampRainScroll(m.scrollOffset, m.cursor, m.listVisible(), len(m.rows))
 		case "down", "j":
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
 			}
+			m.scrollOffset = clampRainScroll(m.scrollOffset, m.cursor, m.listVisible(), len(m.rows))
 		case "s":
 			if m.ctrl.Skip != nil && m.cursor < len(m.rows) {
 				row := m.rows[m.cursor]
@@ -149,12 +153,50 @@ func (m rainRunModel) View() string {
 	b.WriteString("\n")
 	b.WriteString("↑/↓ select · s skip running repo · a/q abort all\n\n")
 
-	for i, row := range m.rows {
-		line := m.formatRow(row, i == m.cursor)
-		b.WriteString(line)
+	visible := m.listVisible()
+	offset := clampRainScroll(m.scrollOffset, m.cursor, visible, len(m.rows))
+	end := offset + visible
+	if end > len(m.rows) {
+		end = len(m.rows)
+	}
+	for i := offset; i < end; i++ {
+		b.WriteString(m.formatRow(m.rows[i], i == m.cursor))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// listVisible is how many repo rows fit below the fixed header.
+// Before the first WindowSizeMsg (height 0), show the full list.
+func (m rainRunModel) listVisible() int {
+	const headerLines = 3 // title, help, blank
+	if m.height <= 0 {
+		return len(m.rows)
+	}
+	n := m.height - headerLines
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func clampRainScroll(offset, cursor, visible, total int) int {
+	if visible <= 0 || total == 0 {
+		return 0
+	}
+	if offset > total-visible {
+		offset = total - visible
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if cursor < offset {
+		return cursor
+	}
+	if cursor >= offset+visible {
+		return cursor - visible + 1
+	}
+	return offset
 }
 
 func (m rainRunModel) formatRow(row rainRepoRow, selected bool) string {
