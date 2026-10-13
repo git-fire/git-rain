@@ -426,6 +426,8 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 					_, _ = fmt.Fprintln(out, "    ~  skipped")
 					_, _ = fmt.Fprintln(out)
 				}
+				delta.skipped++
+				report.SummaryOutcome = "skipped"
 				return delta, report
 			}
 			msg := safety.SanitizeText(fetchFailureMessage(fetchErr.Error()))
