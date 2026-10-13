@@ -51,6 +51,24 @@ func TestIsTransientNetworkFailure_Classification(t *testing.T) {
 		{"fetch timed out with auth", "fatal: Authentication failed for 'https://example.com/repo.git'", &FetchTimedOutError{Seconds: 2}, false},
 		{"fetch timed out with prompts disabled", "fatal: could not read Username for 'https://example.com': terminal prompts disabled", &FetchTimedOutError{Seconds: 2}, false},
 		{"fetch timed out with 403", "remote: HTTP 403\n fatal: unable to access", &FetchTimedOutError{Seconds: 2}, false},
+		{
+			"fetch timed out with repository url not found",
+			"fatal: repository 'https://example.com/missing.git' not found\n",
+			&FetchTimedOutError{Seconds: 2},
+			false,
+		},
+		{
+			"git url error 404 wins over timeout",
+			"fatal: unable to access 'https://example.com/repo.git': The requested URL returned error: 404\n",
+			&FetchTimedOutError{Seconds: 2},
+			false,
+		},
+		{
+			"invalid username or password wins over transient phrase",
+			"fatal: Invalid username or password\nfatal: could not resolve host: other.example\n",
+			errors.New("exit 128"),
+			false,
+		},
 	}
 	for _, tc := range cases {
 		if got := isTransientNetworkFailure([]byte(tc.out), tc.err); got != tc.want {

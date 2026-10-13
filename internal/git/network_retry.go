@@ -133,19 +133,27 @@ func isTransientNetworkFailure(output []byte, err error) bool {
 		"permission denied",
 		"repository not found",
 		"terminal prompts disabled",
+		"invalid username or password",
 		"invalid credentials",
 		" 401 ",
 		" 403 ",
+		" 404 ",
 		"http 401",
 		"http 403",
+		"http 404",
 		// git: "The requested URL returned error: 401\n"
 		"error: 401",
 		"error: 403",
+		"error: 404",
 	}
 	for _, p := range nonRetry {
 		if strings.Contains(s, p) {
 			return false
 		}
+	}
+	// git: "fatal: repository 'https://…' not found" (URL breaks the contiguous phrase)
+	if strings.Contains(s, "repository") && strings.Contains(s, "not found") {
+		return false
 	}
 
 	var timedOut *FetchTimedOutError
