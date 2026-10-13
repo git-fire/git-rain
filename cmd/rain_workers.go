@@ -11,6 +11,11 @@ import (
 	"github.com/git-rain/git-rain/internal/registry"
 )
 
+type rainRepoJob struct {
+	repo  git.Repository
+	index int
+}
+
 // runRainReposParallel runs fetch/rain for repos using the same bounded worker
 // pool as the default streaming CLI path.
 func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int) (rainTotals, []jsonRepoResult) {
@@ -19,9 +24,9 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 	}
 
 	workers := fetchWorkerCount(fetchWorkers)
-	repoChan := make(chan git.Repository, len(repos))
-	for _, repo := range repos {
-		repoChan <- repo
+	repoChan := make(chan rainRepoJob, len(repos))
+	for i, repo := range repos {
+		repoChan <- rainRepoJob{repo: repo, index: i + 1}
 	}
 	close(repoChan)
 
@@ -31,9 +36,8 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 		skipped int64
 		frozen  int64
 		failed  int64
-		seq     int64
 	)
-	total := int64(len(repos))
+	total := len(repos)
 	var jsonReports []jsonRepoResult
 	var jsonReportsMu sync.Mutex
 
@@ -43,13 +47,12 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 		workersWG.Add(1)
 		go func() {
 			defer workersWG.Done()
-			for repo := range repoChan {
+			for job := range repoChan {
 				if runCtx != nil && runCtx.Err() != nil {
 					continue
 				}
-				current := int(atomic.AddInt64(&seq, 1))
 				var buf strings.Builder
-				delta, report := runRainOnRepo(reg, repo, rainOpts, fullSync, current, int(total), &buf, !rainJSON)
+				delta, report := runRainOnRepo(reg, job.repo, rainOpts, fullSync, job.index, total, &buf, !rainJSON)
 
 				printMu.Lock()
 				if !rainJSON {
