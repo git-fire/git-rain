@@ -17,6 +17,9 @@ func TestClassifyRepoRainOutcome_SkipDoesNotCountFrozen(t *testing.T) {
 	if delta.frozen != 0 {
 		t.Fatalf("frozen = %d, want 0", delta.frozen)
 	}
+	if delta.skipped != 1 {
+		t.Fatalf("skipped = %d, want 1", delta.skipped)
+	}
 }
 
 func TestClassifyRepoRainOutcome_SkipAfterWorkShowsDone(t *testing.T) {
