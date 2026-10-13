@@ -68,6 +68,13 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 			for job := range repoChan {
 				repo := job.repo
 				if runCtx != nil && runCtx.Err() != nil {
+					emitRainEvent(progress, rainexec.Event{
+						RepoPath: repo.Path,
+						RepoName: repo.Name,
+						State:    rainexec.StateSkipped,
+						Detail:   "skipped",
+					})
+					atomic.AddInt64(&skipped, 1)
 					continue
 				}
 				repoCtx := runCtx

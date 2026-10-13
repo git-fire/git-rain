@@ -164,3 +164,18 @@ func TestRunRainReposParallel_PreStartCancelCountsSkipped(t *testing.T) {
 		t.Fatal("expected skipped progress event for pre-start cancel")
 	}
 }
+
+func TestRunRainReposParallel_AbortCountsQueuedRepos(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	repos := []git.Repository{
+		{Name: "a", Path: "/tmp/git-rain-abort-a"},
+		{Name: "b", Path: "/tmp/git-rain-abort-b"},
+		{Name: "c", Path: "/tmp/git-rain-abort-c"},
+	}
+	totals, _ := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{RunCtx: ctx}, false, 2, nil, nil, true)
+	if totals.skipped != 3 {
+		t.Fatalf("totals.skipped = %d, want 3 (queued repos after abort)", totals.skipped)
+	}
+}
