@@ -131,6 +131,15 @@ type RainOptions struct {
 	// FetchTimeoutSec is the per-fetch deadline in seconds (0 = no timeout).
 	FetchTimeoutSec int
 
+	// FetchRetryMaxAttempts is total network git attempts per fetch (default 2).
+	FetchRetryMaxAttempts int
+
+	// FetchRetryInitialBackoffSec is the first retry delay in seconds.
+	FetchRetryInitialBackoffSec int
+
+	// FetchRetryMaxBackoffSec caps exponential retry backoff.
+	FetchRetryMaxBackoffSec int
+
 	// RunCtx cancels in-flight network git when the run is interrupted.
 	RunCtx context.Context
 }
@@ -220,10 +229,10 @@ func RainRepository(repoPath string, opts RainOptions) (RainResult, error) {
 		if runCtx == nil {
 			runCtx = context.Background()
 		}
-		output, fetchErr := RunNetworkGit(runCtx, cmd, opts.FetchTimeoutSec)
+		output, fetchErr := RunNetworkGit(runCtx, cmd, NetworkGitParamsFromRain(opts))
 		if fetchErr != nil {
 			if errors.Is(fetchErr, context.Canceled) {
-				return result, nil
+				return result, fetchErr
 			}
 			// Freeze gracefully — could not reach remote (auth, network, etc.).
 			// This is not a hard failure; the repo is untouched. Try again later.

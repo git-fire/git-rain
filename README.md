@@ -315,6 +315,9 @@ git-rain --init
 | `--no-prune` | Never pass `--prune` on fetch for this run (overrides `--prune`, config, registry, and `rain.fetchprune`) |
 | `--tags` | Also pass `--tags` on fetch operations |
 | `--fetch-timeout <sec>` | Per-fetch network deadline in seconds (`0` = disabled; default from `global.fetch_timeout_sec`) |
+| `--fetch-retry-max-attempts` | Total network git attempts per fetch (transient errors only; default `2`) |
+| `--fetch-retry-initial-backoff` | First retry delay in seconds (default `2`) |
+| `--fetch-retry-max-backoff` | Max retry backoff in seconds (default `30`) |
 | `--path <dir>` | Scan path override (default: config `global.scan_path`) |
 | `--no-scan` | Skip filesystem scan; hydrate only known registry repos |
 | `--risky` | Allow destructive local branch realignment after creating backup refs |

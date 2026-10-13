@@ -26,6 +26,10 @@ type GlobalConfig struct {
 	// FetchTimeoutSec is the per-fetch deadline in seconds (0 = no timeout).
 	FetchTimeoutSec int `mapstructure:"fetch_timeout_sec" toml:"fetch_timeout_sec"`
 
+	FetchRetryMaxAttempts       int `mapstructure:"fetch_retry_max_attempts" toml:"fetch_retry_max_attempts"`
+	FetchRetryInitialBackoffSec int `mapstructure:"fetch_retry_initial_backoff_sec" toml:"fetch_retry_initial_backoff_sec"`
+	FetchRetryMaxBackoffSec     int `mapstructure:"fetch_retry_max_backoff_sec" toml:"fetch_retry_max_backoff_sec"`
+
 	// Default mode for repos (used for registry opt-out model).
 	DefaultMode string `mapstructure:"default_mode" toml:"default_mode"`
 

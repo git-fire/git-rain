@@ -25,11 +25,8 @@ func (e *FetchTimedOutError) Is(target error) bool {
 	return target == ErrFetchTimedOut
 }
 
-// RunNetworkGit runs a git command that may contact a remote. It applies
-// PrepareNetworkGit, honors parent cancellation, and when timeoutSec > 0 enforces
-// a per-attempt deadline. On timeout the whole process group is killed so
-// git-remote-https and ssh grandchildren do not linger.
-func RunNetworkGit(parent context.Context, cmd *exec.Cmd, timeoutSec int) ([]byte, error) {
+// runNetworkGitOnce executes a single network git attempt (no retries).
+func runNetworkGitOnce(parent context.Context, cmd *exec.Cmd, timeoutSec int) ([]byte, error) {
 	if parent == nil {
 		parent = context.Background()
 	}

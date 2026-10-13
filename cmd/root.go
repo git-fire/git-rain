@@ -47,6 +47,9 @@ var (
 	rainPrune           bool
 	rainNoPrune         bool
 	rainFetchTimeout    int
+	rainFetchRetryMax   int
+	rainFetchRetryInit  int
+	rainFetchRetryMaxBO int
 	forceUnlockRegistry bool
 	rainJSON            bool
 	rainNonInteractive  bool
@@ -110,6 +113,9 @@ func init() {
 	rootCmd.Flags().BoolVar(&rainPrune, "prune", false, "Pass --prune on git fetch for this run (overrides config and per-repo settings)")
 	rootCmd.Flags().BoolVar(&rainNoPrune, "no-prune", false, "Never pass --prune on git fetch for this run (overrides --prune and global/repo enablement)")
 	rootCmd.Flags().IntVar(&rainFetchTimeout, "fetch-timeout", -1, "Per-fetch network timeout in seconds (0 = disabled; default from config global.fetch_timeout_sec)")
+	rootCmd.Flags().IntVar(&rainFetchRetryMax, "fetch-retry-max-attempts", -1, "Total network git attempts per fetch (default from config global.fetch_retry_max_attempts)")
+	rootCmd.Flags().IntVar(&rainFetchRetryInit, "fetch-retry-initial-backoff", -1, "First retry backoff in seconds (default from config)")
+	rootCmd.Flags().IntVar(&rainFetchRetryMaxBO, "fetch-retry-max-backoff", -1, "Max retry backoff in seconds (default from config)")
 	rootCmd.PersistentFlags().BoolVar(&forceUnlockRegistry, "force-unlock-registry", false, "Remove stale registry lock file without prompting")
 	rootCmd.Flags().BoolVar(&rainJSON, "json", false, "Emit machine-readable JSON summary on stdout (schema_version 1; see AGENTS.md)")
 	rootCmd.Flags().BoolVar(&rainNonInteractive, "non-interactive", false, "Never prompt or open the TUI (also implied when stdin is not a terminal; set GIT_RAIN_NON_INTERACTIVE=1)")
@@ -160,6 +166,18 @@ func runRain(_ *cobra.Command, _ []string) error {
 	if rainFetchTimeout >= 0 {
 		fetchTimeoutSec = rainFetchTimeout
 	}
+	fetchRetryMax := cfg.Global.FetchRetryMaxAttempts
+	if rainFetchRetryMax >= 0 {
+		fetchRetryMax = rainFetchRetryMax
+	}
+	fetchRetryInit := cfg.Global.FetchRetryInitialBackoffSec
+	if rainFetchRetryInit >= 0 {
+		fetchRetryInit = rainFetchRetryInit
+	}
+	fetchRetryMaxBO := cfg.Global.FetchRetryMaxBackoffSec
+	if rainFetchRetryMaxBO >= 0 {
+		fetchRetryMaxBO = rainFetchRetryMaxBO
+	}
 	// Network git runs in their own process group (Setpgid) so a terminal
 	// SIGINT no longer reaches git-remote-*/ssh. Cancel RunCtx on interrupt
 	// so RunNetworkGit can kill the whole group before we exit.
@@ -171,8 +189,11 @@ func runRain(_ *cobra.Command, _ []string) error {
 		SyncTags:         cfg.Global.SyncTags || rainSyncTags,
 		FetchPrune:       cfg.Global.FetchPrune,
 		MainlinePatterns: cfg.Global.MainlinePatterns,
-		FetchTimeoutSec:  fetchTimeoutSec,
-		RunCtx:           runCtx,
+		FetchTimeoutSec:             fetchTimeoutSec,
+		FetchRetryMaxAttempts:       fetchRetryMax,
+		FetchRetryInitialBackoffSec: fetchRetryInit,
+		FetchRetryMaxBackoffSec:     fetchRetryMaxBO,
+		RunCtx:                      runCtx,
 	}
 
 	fullSync := computeFullSync(rainSync, rainRisky, cfg.Global.RiskyMode, rainBranchMode, cfg.Global.BranchMode)
@@ -485,6 +506,15 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 	report.Operation = "hydrate"
 	res, rainErr := git.RainRepository(repo.Path, repoOpts)
 	if rainErr != nil {
+		if errors.Is(rainErr, context.Canceled) {
+			if emitHuman {
+				_, _ = fmt.Fprintln(out, "    ~  skipped")
+				_, _ = fmt.Fprintln(out)
+			}
+			delta.skipped++
+			report.SummaryOutcome = "skipped"
+			return delta, report
+		}
 		msg := safety.SanitizeText(rainErr.Error())
 		if emitHuman {
 			_, _ = fmt.Fprintf(out, "    ✗  failed: %s\n\n", msg)
@@ -1095,7 +1125,7 @@ func fetchOnly(ctx context.Context, repoPath string, opts git.RainOptions) error
 	}
 	cmd := exec.Command("git", fetchArgs...)
 	cmd.Dir = repoPath
-	out, err := git.RunNetworkGit(ctx, cmd, opts.FetchTimeoutSec)
+	out, err := git.RunNetworkGit(ctx, cmd, git.NetworkGitParamsFromRain(opts))
 	if err != nil {
 		var timedOut *git.FetchTimedOutError
 		if errors.As(err, &timedOut) {

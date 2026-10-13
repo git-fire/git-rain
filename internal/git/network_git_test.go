@@ -62,7 +62,7 @@ func TestRunNetworkGit_TimesOutStallRemote(t *testing.T) {
 	start := time.Now()
 	cmd := exec.Command("git", "fetch", "--all")
 	cmd.Dir = repo
-	_, err := RunNetworkGit(context.Background(), cmd, timeoutSec)
+	_, err := RunNetworkGit(context.Background(), cmd, NetworkGitParams{TimeoutSec: timeoutSec, MaxAttempts: 1})
 	elapsed := time.Since(start)
 
 	var timedOut *FetchTimedOutError
@@ -100,7 +100,7 @@ func TestRunNetworkGit_CancelStopsInFlightFetch(t *testing.T) {
 	start := time.Now()
 	cmd := exec.Command("git", "fetch", "--all")
 	cmd.Dir = repo
-	_, err := RunNetworkGit(ctx, cmd, 120)
+	_, err := RunNetworkGit(ctx, cmd, NetworkGitParams{TimeoutSec: 120, MaxAttempts: 1})
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, context.Canceled) {
@@ -122,7 +122,7 @@ func TestRunNetworkGit_HealthyRemoteCompletes(t *testing.T) {
 
 	cmd := exec.Command("git", "fetch", "--all")
 	cmd.Dir = local.Path()
-	_, err := RunNetworkGit(context.Background(), cmd, 30)
+	_, err := RunNetworkGit(context.Background(), cmd, NetworkGitParams{TimeoutSec: 30, MaxAttempts: 1})
 	if err != nil {
 		t.Fatalf("RunNetworkGit() on healthy remote: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRunNetworkGit_TimeoutErrorNotDroppedByWaitRace(t *testing.T) {
 	// wrong waitDone path would flake as a generic "signal: killed" error.
 	for i := 0; i < 40; i++ {
 		cmd := exec.Command("sleep", "30")
-		_, err := RunNetworkGit(context.Background(), cmd, 1)
+		_, err := RunNetworkGit(context.Background(), cmd, NetworkGitParams{TimeoutSec: 1, MaxAttempts: 1})
 		var timedOut *FetchTimedOutError
 		if !errors.As(err, &timedOut) {
 			t.Fatalf("iteration %d: err = %v (%T), want FetchTimedOutError", i, err, err)
@@ -165,7 +165,7 @@ wait
 	cmd := exec.Command("sh", scriptPath, marker)
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := RunNetworkGit(ctx, cmd, 0)
+		_, err := RunNetworkGit(ctx, cmd, NetworkGitParams{TimeoutSec: 0, MaxAttempts: 1})
 		errCh <- err
 	}()
 

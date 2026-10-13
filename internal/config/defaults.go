@@ -3,6 +3,9 @@ package config
 const (
 	DefaultFetchWorkers              = 4
 	DefaultFetchTimeoutSec           = 120
+	DefaultFetchRetryMaxAttempts     = 2
+	DefaultFetchRetryInitialBackoffSec = 2
+	DefaultFetchRetryMaxBackoffSec   = 30
 	DefaultUIRainTickMS              = 150
 	DefaultUIStartupQuoteIntervalSec = 10
 )
@@ -25,7 +28,10 @@ func DefaultConfig() Config {
 			ScanDepth:        10,
 			ScanWorkers:      8,
 			FetchWorkers:     DefaultFetchWorkers,
-			FetchTimeoutSec:  DefaultFetchTimeoutSec,
+			FetchTimeoutSec:             DefaultFetchTimeoutSec,
+			FetchRetryMaxAttempts:       DefaultFetchRetryMaxAttempts,
+			FetchRetryInitialBackoffSec: DefaultFetchRetryInitialBackoffSec,
+			FetchRetryMaxBackoffSec:     DefaultFetchRetryMaxBackoffSec,
 			DefaultMode:      "sync-default",
 			RescanSubmodules: false,
 			DisableScan:      false,
@@ -83,6 +89,11 @@ fetch_workers = 4
 
 # Per-fetch deadline in seconds for network git (0 = no timeout)
 fetch_timeout_sec = 120
+
+# Transient network fetch retries (auth / 404 failures are never retried)
+fetch_retry_max_attempts = 2
+fetch_retry_initial_backoff_sec = 2
+fetch_retry_max_backoff_sec = 30
 
 # Default mode for repos (used by registry opt-out model)
 default_mode = "sync-default"
