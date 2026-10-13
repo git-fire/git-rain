@@ -227,6 +227,10 @@ func runRain(_ *cobra.Command, _ []string) error {
 		return runDryRun(opts, rainOpts, fullSync, cfg)
 	}
 
+	runCtx, stopRun := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopRun()
+	rainOpts.RunCtx = runCtx
+
 	if rainRain {
 		return runRainTUIStream(cfg, reg, regPath, opts, rainOpts, fullSync)
 	}
@@ -334,6 +338,27 @@ type rainTotals struct {
 	failed  int
 }
 
+func printRainSummary(totals rainTotals, runCtx context.Context) error {
+	fmt.Println(strings.Repeat("─", 48))
+	if runCtx != nil && runCtx.Err() != nil {
+		fmt.Printf("🌧  rain interrupted — %d updated, %d skipped, %d frozen, %d failed\n",
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("interrupted")
+	}
+	if totals.failed > 0 {
+		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
+			totals.updated, totals.skipped, totals.frozen, totals.failed)
+		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
+	}
+	if totals.frozen > 0 {
+		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
+			totals.updated, totals.skipped, totals.frozen)
+		return nil
+	}
+	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
+	return nil
+}
+
 // processRainRepositories runs fetch or full rain for each repository sequentially
 // and accumulates outcome counts. Each repo's output is written as a single block
 // directly to stdout. Used for the --rain TUI post-processing path; the default
@@ -421,6 +446,15 @@ func runRainOnRepo(reg *registry.Registry, repo git.Repository, rainOpts git.Rai
 			fetchCtx = rainOpts.RunCtx
 		}
 		if fetchErr := fetchOnly(fetchCtx, repo.Path, repoOpts); fetchErr != nil {
+			if errors.Is(fetchErr, context.Canceled) {
+				if emitHuman {
+					_, _ = fmt.Fprintln(out, "    ~  skipped")
+					_, _ = fmt.Fprintln(out)
+				}
+				delta.skipped++
+				report.SummaryOutcome = "skipped"
+				return delta, report
+			}
 			msg := safety.SanitizeText(fetchFailureMessage(fetchErr.Error()))
 			if emitHuman {
 				_, _ = fmt.Fprintf(out, "    ❄  (fetch --all): %s\n\n", msg)
@@ -852,6 +886,8 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 			const scanPrefix = "   🔍 Scanning… "
 			for {
 				select {
+				case <-ctx.Done():
+					return
 				case <-scanDone:
 					return
 				case <-tick.C:
@@ -916,7 +952,7 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		go func() {
 			defer workersWG.Done()
 			for repo := range repoChan {
-				// Drain remaining work without fetching after interrupt/cancel.
+				// Drain repoChan so the upsert goroutine can finish and close it.
 				if ctx.Err() != nil {
 					continue
 				}
@@ -977,6 +1013,12 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 	}
 
 	if atomic.LoadInt64(&seq) == 0 {
+		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+			if rainJSON {
+				return emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), rainTotals{}, nil)
+			}
+			return fmt.Errorf("interrupted")
+		}
 		if rainJSON {
 			return emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), rainTotals{}, nil)
 		}
@@ -988,25 +1030,16 @@ func runRainDefaultStream(cfg *config.Config, reg *registry.Registry, regPath st
 		if err := emitJSONRun(buildJSONRunMeta(rainOpts, fullSync), totals, jsonReports); err != nil {
 			return err
 		}
+		if rainOpts.RunCtx != nil && rainOpts.RunCtx.Err() != nil {
+			return fmt.Errorf("interrupted")
+		}
 		if totals.failed > 0 {
 			return fmt.Errorf("%d branch(es) failed — see --json output", totals.failed)
 		}
 		return nil
 	}
 
-	fmt.Println(strings.Repeat("─", 48))
-	if totals.failed > 0 {
-		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totals.updated, totals.skipped, totals.frozen, totals.failed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
-	}
-	if totals.frozen > 0 {
-		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totals.updated, totals.skipped, totals.frozen)
-		return nil
-	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
-	return nil
+	return printRainSummary(totals, rainOpts.RunCtx)
 }
 
 // runRainOnRepos runs fetch or full rain on a pre-selected list of repos.
@@ -1047,19 +1080,7 @@ func runRainOnRepos(reg *registry.Registry, repos []git.Repository, opts git.Rai
 		return nil
 	}
 
-	fmt.Println(strings.Repeat("─", 48))
-	if totals.failed > 0 {
-		fmt.Printf("🌧  rain stopped — %d updated, %d skipped, %d frozen, %d failed\n",
-			totals.updated, totals.skipped, totals.frozen, totals.failed)
-		return fmt.Errorf("%d branch(es) failed — check output above", totals.failed)
-	}
-	if totals.frozen > 0 {
-		fmt.Printf("🌧  rain delivered — %d updated, %d skipped, %d frozen (try again when reachable)\n",
-			totals.updated, totals.skipped, totals.frozen)
-		return nil
-	}
-	fmt.Printf("🌧  rain delivered — %d updated, %d skipped\n", totals.updated, totals.skipped)
-	return nil
+	return printRainSummary(totals, opts.RunCtx)
 }
 
 func applyRepoFetchPrune(repoPath string, base git.RainOptions, absPath string, reg *registry.Registry) (git.RainOptions, error) {

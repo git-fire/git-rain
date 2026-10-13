@@ -77,6 +77,12 @@ func RunNetworkGit(parent context.Context, cmd *exec.Cmd, timeoutSec int) ([]byt
 			return combined.Bytes(), runCtx.Err()
 		}
 		if err != nil {
+			if errors.Is(runCtx.Err(), context.DeadlineExceeded) && timeoutSec > 0 {
+				return combined.Bytes(), &FetchTimedOutError{Seconds: timeoutSec}
+			}
+			if runCtx.Err() != nil {
+				return combined.Bytes(), runCtx.Err()
+			}
 			return combined.Bytes(), err
 		}
 		return combined.Bytes(), nil

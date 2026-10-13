@@ -80,6 +80,37 @@ func TestRunNetworkGit_TimesOutStallRemote(t *testing.T) {
 	}
 }
 
+func TestRunNetworkGit_CancelStopsInFlightFetch(t *testing.T) {
+	baseURL, cleanup := startStallTCPListener(t)
+	defer cleanup()
+
+	repo := testutil.CreateTestRepo(t, testutil.RepoOptions{
+		Name: "cancel-stall",
+		Remotes: map[string]string{
+			"origin": baseURL + "/stall.git",
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	cmd := exec.Command("git", "fetch", "--all")
+	cmd.Dir = repo
+	_, err := RunNetworkGit(ctx, cmd, 120)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunNetworkGit() err = %v, want context.Canceled", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("cancel took %v; expected subprocess to stop quickly", elapsed)
+	}
+}
+
 func TestRunNetworkGit_HealthyRemoteCompletes(t *testing.T) {
 	scenario := testutil.NewScenario(t)
 	remote := scenario.CreateBareRepo("upstream")
