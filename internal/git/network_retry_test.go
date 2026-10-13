@@ -64,6 +64,18 @@ func TestIsTransientNetworkFailure_Classification(t *testing.T) {
 			false,
 		},
 		{
+			"pack object count 404 does not block timeout retry",
+			"Total 404 (delta 12), reused 404 (delta 0), pack-reused 0\n",
+			&FetchTimedOutError{Seconds: 2},
+			true,
+		},
+		{
+			"pack object count 404 does not block reset retry",
+			"Total 404 (delta 12), reused 404 (delta 0), pack-reused 0\nfatal: connection reset by peer\n",
+			errors.New("exit 128"),
+			true,
+		},
+		{
 			"invalid username or password wins over transient phrase",
 			"fatal: Invalid username or password\nfatal: could not resolve host: other.example\n",
 			errors.New("exit 128"),

@@ -137,7 +137,7 @@ func isTransientNetworkFailure(output []byte, err error) bool {
 		"invalid credentials",
 		" 401 ",
 		" 403 ",
-		" 404 ",
+		// Omit " 404 ": pack-objects stats ("Total 404 (delta …)") contain it.
 		"http 401",
 		"http 403",
 		"http 404",
