@@ -20,12 +20,14 @@ func TestFetchFailureReason_TerminalPromptsDisabled(t *testing.T) {
 }
 
 func isolatedPrepareNetworkEnv(t *testing.T) []string {
+	t.Helper()
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"USER=" + os.Getenv("USER"),
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
 	}
 }
 
@@ -60,6 +62,20 @@ func TestPrepareNetworkGit_PreservesUserGitSSHCommand(t *testing.T) {
 	for _, e := range cmd.Env {
 		if strings.HasPrefix(e, "GIT_SSH_COMMAND=") && !strings.Contains(e, "IdentityFile=/tmp/custom") {
 			t.Fatalf("clobbered user GIT_SSH_COMMAND: %s", e)
+		}
+	}
+}
+
+func TestPrepareNetworkGit_PreservesUserGitSSH(t *testing.T) {
+	repo := testutil.CreateTestRepo(t, testutil.RepoOptions{Name: "failfast-user-git-ssh"})
+	cmd := exec.Command("git", "fetch", "--all")
+	cmd.Dir = repo
+	cmd.Env = append(isolatedPrepareNetworkEnv(t), "GIT_SSH=/usr/bin/custom-ssh")
+	PrepareNetworkGit(cmd)
+
+	for _, e := range cmd.Env {
+		if strings.HasPrefix(e, "GIT_SSH_COMMAND=") {
+			t.Fatalf("should not set GIT_SSH_COMMAND when GIT_SSH is set, got %s", e)
 		}
 	}
 }

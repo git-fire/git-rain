@@ -1,11 +1,14 @@
 package git
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	testutil "github.com/git-fire/git-testkit"
 )
@@ -411,4 +414,34 @@ func hasRainBackupBranch(t *testing.T, repoPath string) bool {
 		}
 	}
 	return false
+}
+
+func TestRainRepository_CancelDuringFetchReturnsCanceled(t *testing.T) {
+	baseURL, cleanup := startStallTCPListener(t)
+	defer cleanup()
+
+	repo := testutil.CreateTestRepo(t, testutil.RepoOptions{
+		Name: "rain-cancel-fetch",
+		Remotes: map[string]string{
+			"origin": baseURL + "/stall.git",
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+
+	result, err := RainRepository(repo, RainOptions{
+		RunCtx:                ctx,
+		FetchTimeoutSec:       120,
+		FetchRetryMaxAttempts: 1,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RainRepository() err = %v, want context.Canceled", err)
+	}
+	if len(result.Branches) != 0 {
+		t.Fatalf("canceled fetch should not report branch outcomes, got %+v", result.Branches)
+	}
 }
