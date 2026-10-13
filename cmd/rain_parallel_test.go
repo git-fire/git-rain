@@ -126,7 +126,7 @@ func TestRunRainReposParallel_PreservesSelectionIndex(t *testing.T) {
 	}
 
 	var doc jsonRunDocument
-	if err := json.Unmarshal([]byte(out.String()), &doc); err == nil && len(doc.Repositories) > 0 {
+	if err := json.Unmarshal(out.Bytes(), &doc); err == nil && len(doc.Repositories) > 0 {
 		for _, rep := range doc.Repositories {
 			want := byName[rep.Name].Index
 			if rep.Index != want {
