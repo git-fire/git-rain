@@ -6,10 +6,19 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/git-rain/git-rain/internal/git"
+	"github.com/git-rain/git-rain/internal/rainexec"
 	"github.com/git-rain/git-rain/internal/registry"
 )
+
+func emitRainEvent(ch chan<- rainexec.Event, e rainexec.Event) {
+	if ch == nil {
+		return
+	}
+	ch <- e
+}
 
 type parallelRepoJob struct {
 	repo  git.Repository
@@ -17,13 +26,22 @@ type parallelRepoJob struct {
 }
 
 // runRainReposParallel runs fetch/rain for repos using the same bounded worker
-// pool as the default streaming CLI path.
-func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int) (rainTotals, []jsonRepoResult) {
+// pool as the default streaming CLI path. When progress is non-nil, repo status
+// events are emitted; when quiet is true, per-repo CLI blocks are suppressed.
+func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOpts git.RainOptions, fullSync bool, fetchWorkers int, progress chan rainexec.Event, coord *rainCoordinator, quiet bool) (rainTotals, []jsonRepoResult) {
 	if len(repos) == 0 {
 		return rainTotals{}, nil
 	}
 
 	total := len(repos)
+	for _, repo := range repos {
+		emitRainEvent(progress, rainexec.Event{
+			RepoPath: repo.Path,
+			RepoName: repo.Name,
+			State:    rainexec.StateQueued,
+		})
+	}
+
 	workers := fetchWorkerCount(fetchWorkers)
 	repoChan := make(chan parallelRepoJob, len(repos))
 	for i, repo := range repos {
@@ -50,16 +68,81 @@ func runRainReposParallel(reg *registry.Registry, repos []git.Repository, rainOp
 			for job := range repoChan {
 				repo := job.repo
 				if runCtx != nil && runCtx.Err() != nil {
+					emitRainEvent(progress, rainexec.Event{
+						RepoPath: repo.Path,
+						RepoName: repo.Name,
+						State:    rainexec.StateSkipped,
+						Detail:   "skipped",
+					})
+					atomic.AddInt64(&skipped, 1)
 					continue
 				}
-				var buf strings.Builder
-				delta, report := runRainOnRepo(reg, repo, rainOpts, fullSync, job.index, total, &buf, !rainJSON)
-
-				printMu.Lock()
-				if !rainJSON {
-					_, _ = io.WriteString(os.Stdout, buf.String())
+				repoCtx := runCtx
+				if coord != nil {
+					repoCtx = coord.ContextFor(repo.Path)
 				}
-				printMu.Unlock()
+				if repoCtx != nil && repoCtx.Err() != nil {
+					emitRainEvent(progress, rainexec.Event{
+						RepoPath: repo.Path,
+						RepoName: repo.Name,
+						State:    rainexec.StateSkipped,
+						Detail:   "skipped",
+					})
+					atomic.AddInt64(&skipped, 1)
+					continue
+				}
+
+				started := time.Now()
+				maxAttempts := rainOpts.FetchRetryMaxAttempts
+				if maxAttempts < 0 {
+					maxAttempts = git.DefaultFetchRetryMaxAttempts
+				}
+				if maxAttempts == 0 {
+					maxAttempts = 1
+				}
+				emitRainEvent(progress, rainexec.Event{
+					RepoPath:    repo.Path,
+					RepoName:    repo.Name,
+					State:       rainexec.StateRunning,
+					Attempt:     1,
+					MaxAttempts: maxAttempts,
+					StartedAt:   started,
+				})
+
+				repoOpts := rainOpts
+				repoOpts.RunCtx = repoCtx
+				repoOpts.OnFetchAttempt = func(attempt, max int) {
+					emitRainEvent(progress, rainexec.Event{
+						RepoPath:    repo.Path,
+						RepoName:    repo.Name,
+						State:       rainexec.StateRetrying,
+						Attempt:     attempt,
+						MaxAttempts: max,
+						StartedAt:   started,
+					})
+				}
+
+				var buf strings.Builder
+				emitHuman := !quiet && !rainJSON
+				delta, report := runRainOnRepo(reg, repo, repoOpts, fullSync, job.index, total, &buf, emitHuman)
+				state, delta := classifyRepoRainOutcome(repoCtx, delta, report)
+				detail := ""
+				if state == rainexec.StateSkipped {
+					detail = "skipped"
+				}
+				emitRainEvent(progress, rainexec.Event{
+					RepoPath:  repo.Path,
+					RepoName:  repo.Name,
+					State:     state,
+					StartedAt: started,
+					Detail:    detail,
+				})
+
+				if emitHuman {
+					printMu.Lock()
+					_, _ = io.WriteString(os.Stdout, buf.String())
+					printMu.Unlock()
+				}
 
 				if rainJSON {
 					jsonReportsMu.Lock()

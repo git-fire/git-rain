@@ -745,31 +745,7 @@ func (m RepoSelectorModel) withClampedPathScroll() RepoSelectorModel {
 }
 
 func (m RepoSelectorModel) clampScroll(offset, cursor, visible, total int) int {
-	if visible <= 0 || total == 0 {
-		return 0
-	}
-	if offset > total-visible {
-		offset = total - visible
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	itemVisible := visible
-	var next int
-	for {
-		if cursor < offset {
-			next = cursor
-		} else if cursor >= offset+itemVisible {
-			next = cursor - itemVisible + 1
-		} else {
-			next = offset
-		}
-		if next == offset {
-			break
-		}
-		offset = next
-	}
-	return offset
+	return clampListScroll(offset, cursor, visible, total)
 }
 
 func (m RepoSelectorModel) contentWidth() int {

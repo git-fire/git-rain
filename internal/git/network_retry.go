@@ -20,6 +20,7 @@ type NetworkGitParams struct {
 	MaxAttempts       int
 	InitialBackoffSec int
 	MaxBackoffSec     int
+	OnRetry           func(attempt int, maxAttempts int)
 }
 
 // NetworkGitParamsFromRain maps RainOptions into network git execution params.
@@ -31,6 +32,7 @@ func NetworkGitParamsFromRain(opts RainOptions) NetworkGitParams {
 		MaxAttempts:       opts.FetchRetryMaxAttempts,
 		InitialBackoffSec: opts.FetchRetryInitialBackoffSec,
 		MaxBackoffSec:     opts.FetchRetryMaxBackoffSec,
+		OnRetry:           opts.OnFetchAttempt,
 	}
 }
 
@@ -80,6 +82,9 @@ func runNetworkGitWithRetry(parent context.Context, cmd *exec.Cmd, params Networ
 		}
 		if attemptNum >= maxAttempts || !isTransientNetworkFailure(out, err) {
 			return out, err
+		}
+		if params.OnRetry != nil {
+			params.OnRetry(attemptNum+1, maxAttempts)
 		}
 		if !sleepWithContext(parent, backoff) {
 			return lastOut, parent.Err()

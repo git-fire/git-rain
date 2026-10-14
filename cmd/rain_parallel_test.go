@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -9,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/git-rain/git-rain/internal/git"
-	"github.com/git-rain/git-rain/internal/registry"
 	testutil "github.com/git-fire/git-testkit"
+	"github.com/git-rain/git-rain/internal/git"
+	"github.com/git-rain/git-rain/internal/rainexec"
+	"github.com/git-rain/git-rain/internal/registry"
 )
 
 func TestRunRainOnRepos_ParallelStallDoesNotBlockHealthy(t *testing.T) {
@@ -47,7 +49,7 @@ func TestRunRainOnRepos_ParallelStallDoesNotBlockHealthy(t *testing.T) {
 	defer func() { os.Stdout = oldStdout }()
 
 	start := time.Now()
-	err := runRainOnRepos(&registry.Registry{}, repos, rainOpts, false, 2)
+	err := runRainOnRepos(&registry.Registry{}, repos, rainOpts, false, 2) // CLI path (parallel stdout)
 	elapsed := time.Since(start)
 
 	_ = w.Close()
@@ -102,7 +104,7 @@ func TestRunRainReposParallel_PreservesSelectionIndex(t *testing.T) {
 	os.Stdout = w
 	defer func() { os.Stdout = oldStdout }()
 
-	totals, reports := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{FetchTimeoutSec: 2}, false, 2)
+	totals, reports := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{FetchTimeoutSec: 2}, false, 2, nil, nil, false)
 	_ = w.Close()
 	var out bytes.Buffer
 	_, _ = io.Copy(&out, r)
@@ -133,5 +135,47 @@ func TestRunRainReposParallel_PreservesSelectionIndex(t *testing.T) {
 				t.Fatalf("stdout json repo %s index %d, want %d", rep.Name, rep.Index, want)
 			}
 		}
+	}
+}
+
+func TestRunRainReposParallel_PreStartCancelCountsSkipped(t *testing.T) {
+	repos := []git.Repository{{Name: "pending", Path: "/tmp/git-rain-never-started"}}
+	coord := newRainCoordinator(context.Background(), []string{repos[0].Path})
+	coord.SkipRepo(repos[0].Path)
+
+	progress := make(chan rainexec.Event, 4)
+	totals, _ := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{}, false, 1, progress, coord, true)
+	close(progress)
+
+	if totals.skipped != 1 {
+		t.Fatalf("totals.skipped = %d, want 1 (pre-start cancel must count in summary)", totals.skipped)
+	}
+	if totals.updated != 0 || totals.frozen != 0 || totals.failed != 0 {
+		t.Fatalf("unexpected non-skip totals: %+v", totals)
+	}
+
+	var sawSkipped bool
+	for e := range progress {
+		if e.State == rainexec.StateSkipped {
+			sawSkipped = true
+		}
+	}
+	if !sawSkipped {
+		t.Fatal("expected skipped progress event for pre-start cancel")
+	}
+}
+
+func TestRunRainReposParallel_AbortCountsQueuedRepos(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	repos := []git.Repository{
+		{Name: "a", Path: "/tmp/git-rain-abort-a"},
+		{Name: "b", Path: "/tmp/git-rain-abort-b"},
+		{Name: "c", Path: "/tmp/git-rain-abort-c"},
+	}
+	totals, _ := runRainReposParallel(&registry.Registry{}, repos, git.RainOptions{RunCtx: ctx}, false, 2, nil, nil, true)
+	if totals.skipped != 3 {
+		t.Fatalf("totals.skipped = %d, want 3 (queued repos after abort)", totals.skipped)
 	}
 }

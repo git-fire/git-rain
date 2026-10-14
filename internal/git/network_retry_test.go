@@ -329,3 +329,4 @@ func TestRunNetworkGit_RetriesTCPResetServer(t *testing.T) {
 		t.Fatalf("expected success on second attempt: %v", err)
 	}
 }
+

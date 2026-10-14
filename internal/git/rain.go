@@ -142,6 +142,9 @@ type RainOptions struct {
 
 	// RunCtx cancels in-flight network git when the run is interrupted.
 	RunCtx context.Context
+
+	// OnFetchAttempt is called before retry attempts (attempt >= 2).
+	OnFetchAttempt func(attempt int, maxAttempts int)
 }
 
 const (
