@@ -221,7 +221,7 @@ func (m rainRunModel) View() string {
 
 	vp := rainListViewportFor(m.scrollOffset, m.cursor, m.rainListCapacity(), total)
 	if vp.hasAbove {
-		b.WriteString(fmt.Sprintf("  ↑ %d more\n", vp.offset))
+		fmt.Fprintf(&b, "  ↑ %d more\n", vp.offset)
 	}
 	for i := vp.offset; i < vp.end; i++ {
 		line := m.formatRow(m.rows[i], i == m.cursor)
@@ -229,7 +229,7 @@ func (m rainRunModel) View() string {
 		b.WriteString("\n")
 	}
 	if vp.hasBelow {
-		b.WriteString(fmt.Sprintf("  ↓ %d more\n", vp.belowCount))
+		fmt.Fprintf(&b, "  ↓ %d more\n", vp.belowCount)
 	}
 	return b.String()
 }
