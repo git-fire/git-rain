@@ -32,14 +32,15 @@ type rainRepoRow struct {
 }
 
 type rainRunModel struct {
-	rows       []rainRepoRow
-	cursor     int
-	timeoutSec int
-	events     <-chan rainexec.Event
-	ctrl       RainControls
-	aborted    bool
-	width      int
-	height     int
+	rows         []rainRepoRow
+	cursor       int
+	scrollOffset int
+	timeoutSec   int
+	events       <-chan rainexec.Event
+	ctrl         RainControls
+	aborted      bool
+	width        int
+	height       int
 }
 
 type rainEventMsg rainexec.Event
@@ -91,6 +92,7 @@ func (m rainRunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.scrollOffset = m.clampRainScroll()
 		return m, nil
 	case rainEventMsg:
 		m.applyEvent(rainexec.Event(msg))
@@ -102,10 +104,12 @@ func (m rainRunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.scrollOffset = m.clampRainScroll()
 			}
 		case "down", "j":
 			if m.cursor < len(m.rows)-1 {
 				m.cursor++
+				m.scrollOffset = m.clampRainScroll()
 			}
 		case "s":
 			if m.ctrl.Skip != nil && m.cursor < len(m.rows) {
@@ -142,6 +146,67 @@ func (m *rainRunModel) applyEvent(e rainexec.Event) {
 	}
 }
 
+func (m rainRunModel) rainListCapacity() int {
+	const headerLines = 3 // title, help, blank line before list
+	if m.height <= headerLines {
+		return len(m.rows)
+	}
+	capacity := m.height - headerLines
+	if capacity < 1 {
+		return 1
+	}
+	return capacity
+}
+
+type rainListViewport struct {
+	offset     int
+	end        int
+	hasAbove   bool
+	hasBelow   bool
+	belowCount int
+}
+
+func rainListViewportFor(scrollOffset, cursor, capacity, total int) rainListViewport {
+	offset := scrollOffset
+	for {
+		indicators := 0
+		if offset > 0 {
+			indicators++
+		}
+		provisional := capacity - indicators
+		if provisional < 1 {
+			provisional = 1
+		}
+		hasBelow := offset+provisional < total
+		if hasBelow {
+			indicators++
+		}
+		itemVisible := capacity - indicators
+		if itemVisible < 1 {
+			itemVisible = 1
+		}
+		next := clampListScroll(offset, cursor, itemVisible, total)
+		if next == offset {
+			end := offset + itemVisible
+			if end > total {
+				end = total
+			}
+			return rainListViewport{
+				offset:     offset,
+				end:        end,
+				hasAbove:   offset > 0,
+				hasBelow:   end < total,
+				belowCount: total - end,
+			}
+		}
+		offset = next
+	}
+}
+
+func (m rainRunModel) clampRainScroll() int {
+	return rainListViewportFor(m.scrollOffset, m.cursor, m.rainListCapacity(), len(m.rows)).offset
+}
+
 func (m rainRunModel) View() string {
 	var b strings.Builder
 	title := lipgloss.NewStyle().Bold(true).Render("🌧  Rain in progress")
@@ -149,10 +214,22 @@ func (m rainRunModel) View() string {
 	b.WriteString("\n")
 	b.WriteString("↑/↓ select · s skip running repo · a/q abort all\n\n")
 
-	for i, row := range m.rows {
-		line := m.formatRow(row, i == m.cursor)
+	total := len(m.rows)
+	if total == 0 {
+		return b.String()
+	}
+
+	vp := rainListViewportFor(m.scrollOffset, m.cursor, m.rainListCapacity(), total)
+	if vp.hasAbove {
+		b.WriteString(fmt.Sprintf("  ↑ %d more\n", vp.offset))
+	}
+	for i := vp.offset; i < vp.end; i++ {
+		line := m.formatRow(m.rows[i], i == m.cursor)
 		b.WriteString(line)
 		b.WriteString("\n")
+	}
+	if vp.hasBelow {
+		b.WriteString(fmt.Sprintf("  ↓ %d more\n", vp.belowCount))
 	}
 	return b.String()
 }

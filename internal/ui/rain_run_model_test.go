@@ -99,6 +99,50 @@ func TestRainRunModel_OverdueHighlight(t *testing.T) {
 	}
 }
 
+func TestRainRunModel_ViewScrollsToFollowCursor(t *testing.T) {
+	rows := make([]rainRepoRow, 25)
+	for i := range rows {
+		rows[i] = rainRepoRow{
+			path: fmt.Sprintf("/repo/%d", i),
+			name: fmt.Sprintf("repo-%02d", i),
+			state: rainexec.StateQueued,
+		}
+	}
+	m := rainRunModel{
+		rows:   rows,
+		cursor: 20,
+		height: 10,
+		width:  80,
+	}
+	m.scrollOffset = m.clampRainScroll()
+	view := m.View()
+	if !strings.Contains(view, "repo-20") {
+		t.Fatalf("expected cursor repo in view, got:\n%s", view)
+	}
+	if strings.Contains(view, "repo-00\n") || strings.Contains(view, "  repo-00") {
+		t.Fatalf("first repo should be off-screen when cursor is near the end")
+	}
+
+	m = rainRunModel{rows: rows, cursor: 0, height: 10, width: 80}
+	m.scrollOffset = m.clampRainScroll()
+	view = m.View()
+	if !strings.Contains(view, "repo-00") {
+		t.Fatalf("expected first repo visible at top cursor")
+	}
+
+	for i := 0; i < 18; i++ {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(rainRunModel)
+	}
+	view = m.View()
+	if m.cursor != 18 {
+		t.Fatalf("cursor = %d", m.cursor)
+	}
+	if !strings.Contains(view, "repo-18") {
+		t.Fatalf("expected repo-18 visible after scrolling down, got:\n%s", view)
+	}
+}
+
 func TestRainRunModel_OverdueTruncateKeepsReset(t *testing.T) {
 	prev := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
